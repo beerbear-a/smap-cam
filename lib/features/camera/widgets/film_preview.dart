@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 enum LutType {
   natural,
+  warm, // ゴールデンアワー — 無料2種目
   fuji,
   mono;
 
@@ -12,6 +13,8 @@ enum LutType {
     switch (this) {
       case LutType.natural:
         return 'KODAK';
+      case LutType.warm:
+        return 'WARM';
       case LutType.fuji:
         return 'FUJI';
       case LutType.mono:
@@ -23,10 +26,24 @@ enum LutType {
     switch (this) {
       case LutType.natural:
         return 'Gold 200';
+      case LutType.warm:
+        return 'Golden Hour';
       case LutType.fuji:
         return 'Superia';
       case LutType.mono:
         return 'HP5';
+    }
+  }
+
+  /// FREE = true → Pro購入不要。POST-RELEASE で fuji/mono をゲートする。
+  bool get isPro {
+    switch (this) {
+      case LutType.natural:
+      case LutType.warm:
+        return false;
+      case LutType.fuji:
+      case LutType.mono:
+        return true;
     }
   }
 
@@ -43,6 +60,14 @@ enum LutType {
           1.10,  0.05, -0.02, 0,  8,
           0.02,  0.98,  0.00, 0,  3,
          -0.03,  0.00,  0.88, 0, -6,
+          0,     0,     0,    1,  0,
+        ];
+      // ── Warm Golden Hour: 強い赤/黄・青大幅カット・夕焼け感 ──
+      case LutType.warm:
+        return [
+          1.20,  0.08, -0.05, 0, 20,
+          0.04,  1.02,  0.00, 0, 10,
+         -0.08,  0.00,  0.78, 0,-18,
           0,     0,     0,    1,  0,
         ];
       // ── Fuji Superia: クール・高彩度・シアンシャドウ ──
@@ -69,6 +94,8 @@ enum LutType {
     switch (this) {
       case LutType.natural:
         return 0.45;
+      case LutType.warm:
+        return 0.50; // 夕焼けは周辺光量落ち強め
       case LutType.fuji:
         return 0.35;
       case LutType.mono:

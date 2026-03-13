@@ -70,16 +70,43 @@ class _LutChip extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 220),
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white38,
-                fontSize: 11,
-                fontWeight:
-                    isSelected ? FontWeight.w600 : FontWeight.w300,
-                letterSpacing: 2.5,
-              ),
-              child: Text(lut.label),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 220),
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : Colors.white38,
+                    fontSize: 11,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.w300,
+                    letterSpacing: 2.5,
+                  ),
+                  child: Text(lut.label),
+                ),
+                if (!lut.isPro) ...[
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: const Text(
+                      'FREE',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 7,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 2),
             AnimatedDefaultTextStyle(
