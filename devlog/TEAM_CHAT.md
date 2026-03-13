@@ -140,3 +140,87 @@ PNG ファイルは一枚も追加しません。`CustomPainter` + `Path` でコ
 **PM へ:** 課題 #8 はクローズしていいです。
 
 ---
+
+---
+
+**[田中 優希 / PM] — 2026-03-14 10:00**
+
+チームアセスメント完了。3名を追加召喚しました（`007_pm_team_assessment.md` 参照）。
+
+追加メンバー:
+- **西村 晴子** — 動物学アドバイザー（JAZA / 上野動物園 OG）
+- **Jun Kang (강준)** — Androidエンジニア（CameraX専門）
+- **青山 美樹** — QA/リリースエンジニア（Sprint 5 から）
+
+各自、担当タスクを確認してください。
+
+---
+
+**[西村 晴子 / 動物学アドバイザー] — 2026-03-14 10:15**
+
+はじめまして。JAZA の委員会とUeno Zooの経験を活かして貢献します。
+
+`008_zoologist_advisor.md` に全32種の分類体系と差分パラメータを書きました。
+7つのベースカテゴリで全種をカバーできています。
+
+**Rei さんへの申し送り:**
+- 視覚識別の優先度は「固有パーツ > 体型 > 耳 > 尾」の順
+- フェネックの耳は体の1/3サイズ。これを小さく描くと別の動物になる
+- ゾウの鼻は胴体より先に目に入る。最重要パーツ
+- ジャイアントパンダは「クマ科」だが「パンダに見える」のは目のパッチと丸い体型
+
+JAZAデータ（3/16予定）が届いたら種の優先度付けも手伝います。
+レアリティ4の種は国内1施設のみ飼育なので、実際のデータを照合できます。
+
+---
+
+**[Rei Suzuki / 鈴木 零] — 2026-03-14 11:00**
+
+西村さん、完璧なドキュメント。これだけ整理されていれば全種書ける。
+
+`lib/features/zukan/widgets/animal_silhouette.dart` を実装しました。
+
+実装の骨格:
+- 7つのベース描画関数（`_drawFelid` / `_drawUrsid` / `_drawPrimate` / ...）
+- `EarType` / `TailType` / `BodyShape` / `UniqueFeature` の差分enum
+- `_configs` マップで全32種の設定を一元管理
+- `assetKey` で引けば自動的に正しいシルエットが描かれる
+
+西村さんの「固有パーツ > 体型 > 耳 > 尾」の優先度を実装の順序に反映した。
+各 Base 関数でまず胴体を描き、最後に `UniqueFeature` を上乗せする構造にしてある。
+
+**データが来たら:** `_configs` に `assetKey: SilhouetteConfig(...)` を追加するだけで種が増える。
+
+---
+
+**[Jun Kang (강준) / Androidエンジニア] — 2026-03-14 11:30**
+
+よろしくお願いします。
+
+`android/app/src/main/kotlin/` 以下の `CameraPlugin.kt` を確認します。
+Platform Channel の `zootocam/camera` は iOS 側のログを見て把握しました。
+
+**今週やること:**
+1. CameraPlugin.kt の実機動作確認（Pixel 8 Pro で検証）
+2. `takePicture` のExif方向情報の確認（Android は回転バグが出やすい）
+3. LUT 適用パイプライン（Export時）を AGSL または ColorMatrix で実装
+
+**PM へ:** Mapbox の `mapbox_maps_flutter` は Android の AGP バージョン依存があります。
+現在の `android/build.gradle` の AGP バージョンを確認させてください。
+
+---
+
+**[青山 美樹 / QAエンジニア] — 2026-03-14 12:00**
+
+Sprint 5 に向けて今から準備します。
+
+**事前に確認したいこと（PM へ）:**
+1. ターゲット iOS バージョン（最低サポート）は？
+2. ターゲット Android バージョン（minSdkVersion）は？
+3. App Store Connect のアカウントはすでにありますか？
+4. プライバシーポリシーページ（URL）の準備状況は？
+
+カメラ・位置情報・写真ライブラリを使うアプリは審査で引っかかりやすいです。
+権限説明文（`Info.plist` の Usage Description）を今のうちに日本語化しておくことを推奨します。
+
+---

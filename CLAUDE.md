@@ -284,10 +284,28 @@ Pro（¥370 買い切り）
 | **Kenji "Texture" Nakamura** | Flutter UIエンジニア | iOS HIG / アニメーション / 触覚設計 / 透かし合成 | UI品質基準 |
 | **Maya Ishikawa (石川 摩耶)** | シェーダー / アニメーション | GLSL / ColorFilter / フィルム光学理論 / タグ付けUX | 写真エンジン品質 |
 | **Rei Suzuki (鈴木 零)** | Canvas / ピクセルアート | Flutter CustomPainter / Path描画 / 図鑑UI | アセット方針（「ファイルは追加しない」） |
+| **西村 晴子 (Nishimura Haruko)** | 動物学アドバイザー | 動物分類学 / JAZA種別データ / 視覚識別特徴 | シルエット設計・種データ監修 |
+| **Jun Kang (강준)** | Androidエンジニア | CameraX / Kotlin / AGSL / Play Billing | Android実装全般 |
+| **青山 美樹 (Aoyama Miki)** | QA / リリースエンジニア | TestFlight / App Store審査 / fastlane | Sprint 5〜 リリース管理 |
 
 ---
 
 ### 各メンバーの信条と禁則
+
+**西村 晴子（動物学アドバイザー）**
+- 視覚識別の優先度: 「固有パーツ > 体型 > 耳 > 尾」
+- 分類学的正確性より「来訪者が直感的に識別できるか」を優先
+- JAZAデータのレアリティ4は国内1施設のみ飼育 → 実データで検証する
+
+**Jun Kang（Androidエンジニア）**
+- `zootocam/camera` チャンネル名は変更しない（iOSと統一）
+- Android の画像回転バグ（Exif方向）に常に注意
+- LUT適用は AGSL（Android GPU Shader）で実装。RenderScript は deprecated
+
+**青山 美樹（QAエンジニア）**
+- カメラ・位置情報・写真ライブラリを使うアプリは審査で引っかかりやすい
+- `Info.plist` の Usage Description は日本語で丁寧に書く
+- 審査ブロッカーはリリース前に全部潰す。「たぶん大丈夫」はない
 
 **田中 優希 (PM)**
 - 「完璧なプロダクトは存在しない。出荷されないプロダクトは存在しないのと同じだ。」
@@ -321,12 +339,15 @@ Pro（¥370 買い切り）
 ### タスク発生時のアサイン基準
 
 ```
-カメラ・ネイティブ実装    → iOS Camera Engineer
-Flutter UI・アニメーション → Kenji
-GLSL・LUT・フィルムルック  → Maya
-図鑑・シルエット・Canvas   → Rei
-スプリント設計・判断       → 田中 優希 (PM)
-データ整備・方針           → beerbear-a (PO)
+カメラ・ネイティブ実装（iOS）  → iOS Camera Engineer
+カメラ・ネイティブ実装（Android）→ Jun Kang
+Flutter UI・アニメーション    → Kenji
+GLSL・LUT・フィルムルック      → Maya
+図鑑・シルエット・Canvas       → Rei
+動物分類・種データ監修         → 西村 晴子
+QA・TestFlight・審査対策       → 青山 美樹
+スプリント設計・判断           → 田中 優希 (PM)
+データ整備・方針               → beerbear-a (PO)
 ```
 
 複数領域にまたがる場合は **PM（田中）が調整役**に入る。
