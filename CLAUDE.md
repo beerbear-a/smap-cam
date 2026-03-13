@@ -175,13 +175,13 @@ shaders/film_iso800.frag
 | フィルム現像フロー | ✅ 完成 |
 | ジャーナル（動物タグ付け・メモ） | ✅ 完成 |
 | 図鑑（CustomPainter シルエット 32種） | ✅ 完成（西村監修済み） |
-| 図鑑 空状態UI（encounters = 0） | 🔴 未実装（Sprint 4 残） |
+| 図鑑 空状態UI（encounters = 0 → チェックインCTA） | ✅ 完成 |
 | マップ（Mapbox・ピンタップ→セッション詳細） | ✅ 完成 |
-| MapScreen FAB ラベル（「動物園へ」） | 🔴 未実装（Sprint 4 残） |
+| MapScreen FAB ラベル（「動物園へ」） | ✅ 完成 |
 | コンタクトシート書き出し（フィルムPNG） | ✅ 完成 |
 | WatermarkService（透かし合成 dart:ui） | ✅ 完成 |
 | ShareService（透かし統合・sharePhoto / shareSession） | ✅ 完成 |
-| ShareService ↔ usernameProvider 接続 | 🔴 未接続（呼び出し元の ref 接続が必要） |
+| ShareService ↔ usernameProvider 接続 | ✅ 完成 |
 | 設定（username・透かしプレビュー） | ✅ 完成 |
 | LUT: KODAK / WARM（無料）/ FUJI / MONO（Pro予告） | ✅ 完成 |
 | LUT FREE バッジ表示 | ✅ 完成 |
@@ -371,7 +371,7 @@ QA・TestFlight・審査対策       → 青山 美樹
 | Sprint 1 | ✅ 完了 | DBレイヤー・チェックイン・モデル定義 |
 | Sprint 2 | ✅ 完了 | タグ付けUX・図鑑シルエット・レアリティ |
 | Sprint 3 | ✅ 完了 | マップピンタップ・コンタクトシート書き出し |
-| **Sprint 4** | 🔥 終盤（残3タスク） | 透かし実装・LUT追加・Android検証・UX修正 |
+| **Sprint 4** | ✅ 完了 | 透かし実装・LUT追加・Android検証・UX修正 |
 | Sprint 5 | 🔜 | QA・TestFlight・リリース |
 | POST-RELEASE | ⏳ | 買い切り実装・JAZAデータ本番投入 |
 
@@ -392,16 +392,16 @@ QA・TestFlight・審査対策       → 青山 美樹
 
 ---
 
-### Sprint 4 残タスク（未完了）
+### Sprint 4 完了（Flutter側）— Sprint 5 前提条件
 
-| # | タスク | 担当 | 優先度 |
-|---|--------|------|--------|
-| 1 | 図鑑の空状態UI（encounters=0 → チェックインCTA） | Kenji | 🔴 P0 |
-| 2 | MapScreen FAB ラベル追加（「動物園へ」） | Kenji | 🔴 P0 |
-| 3 | `sharePhoto` 呼び出し元に `usernameProvider` 接続 | Kenji | 🔴 P0 |
-| 4 | Android Exif回転修正（CameraPlugin.kt） | Jun Kang | 🔴 P0（Sprint5ブロッカー） |
-| 5 | Android LUTエクスポートパイプライン（AGSL） | Jun Kang | 🟠 P1 |
-| 6 | iOS Info.plist 権限説明文の日本語確認 | iOSエンジニア | 🟡 P2 |
+| # | タスク | 担当 | 状態 |
+|---|--------|------|------|
+| 1 | 図鑑の空状態UI | Kenji | ✅ |
+| 2 | MapScreen FAB ラベル | Kenji | ✅ |
+| 3 | usernameProvider 接続 | Kenji | ✅ |
+| 4 | Android Exif回転修正 | Jun Kang | 🔴 Sprint 5 ブロッカー |
+| 5 | Android AGSL LUT | Jun Kang | 🟠 |
+| 6 | iOS Info.plist 日本語確認 | iOSエンジニア | 🟡 |
 
 ---
 

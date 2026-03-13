@@ -10,6 +10,7 @@ import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/utils/routes.dart';
 import '../checkin/checkin_screen.dart';
+import '../settings/settings_screen.dart';
 import '../share/contact_sheet_service.dart';
 import '../share/share_service.dart';
 import 'map_notifier.dart';
@@ -138,12 +139,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
 
       // 新規フィルムボタン（チェックイン → フィルム作成）
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.of(context).push(
-          DarkFadeRoute(page: const CheckInScreen()),
-        ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(
+            DarkFadeRoute(page: const CheckInScreen()),
+          );
+        },
         backgroundColor: Colors.white,
-        child: const Icon(Icons.add, color: Colors.black),
+        foregroundColor: Colors.black,
+        icon: const Icon(Icons.add, size: 20),
+        label: const Text(
+          '動物園へ',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.5,
+          ),
+        ),
       ),
     );
   }
@@ -253,7 +265,7 @@ class _SessionListSheet extends ConsumerWidget {
 
 // ── セッション詳細シート ──────────────────────────────────────
 
-class _SessionDetailSheet extends StatefulWidget {
+class _SessionDetailSheet extends ConsumerStatefulWidget {
   final FilmSession session;
   final List<Photo> photos;
 
@@ -263,10 +275,11 @@ class _SessionDetailSheet extends StatefulWidget {
   });
 
   @override
-  State<_SessionDetailSheet> createState() => _SessionDetailSheetState();
+  ConsumerState<_SessionDetailSheet> createState() =>
+      _SessionDetailSheetState();
 }
 
-class _SessionDetailSheetState extends State<_SessionDetailSheet> {
+class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
   bool _isGeneratingSheet = false;
 
   Future<void> _exportContactSheet() async {
@@ -297,6 +310,8 @@ class _SessionDetailSheetState extends State<_SessionDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final username = ref.watch(usernameProvider);
+
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
       expand: false,
@@ -334,12 +349,13 @@ class _SessionDetailSheetState extends State<_SessionDetailSheet> {
                       ],
                     ),
                   ),
-                  // 個別シェアボタン
+                  // 個別シェアボタン（透かし付き）
                   IconButton(
                     onPressed: () async {
                       await ShareService.shareSession(
                         session: widget.session,
                         photos: widget.photos,
+                        username: username,
                       );
                     },
                     icon: const Icon(Icons.share, color: Colors.white54),

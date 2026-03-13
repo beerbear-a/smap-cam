@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
+import '../../core/utils/routes.dart';
+import '../checkin/checkin_screen.dart';
 
 // ── Data class ──────────────────────────────────────────────
 
@@ -144,37 +147,104 @@ class ZukanScreen extends ConsumerWidget {
 class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            '🦁',
-            style: TextStyle(fontSize: 48),
-          ),
-          SizedBox(height: 24),
-          Text(
-            '図鑑がまだ空です',
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 16,
-              letterSpacing: 2,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // シルエット演出: 薄い動物のアイコン
+            CustomPaint(
+              size: const Size(80, 80),
+              painter: _GhostAnimalPainter(),
             ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            '撮影後に動物名を記録すると\nここに表示されます',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white24,
-              fontSize: 13,
-              height: 1.8,
+            const SizedBox(height: 32),
+            const Text(
+              'まだ出会いがありません',
+              style: TextStyle(
+                color: Colors.white38,
+                fontSize: 16,
+                fontWeight: FontWeight.w300,
+                letterSpacing: 2,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            const Text(
+              '動物園へ行ってシャッターを切ってみよう',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white24,
+                fontSize: 13,
+                height: 1.8,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 36),
+            OutlinedButton(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                Navigator.of(context).push(
+                  DarkFadeRoute(page: const CheckInScreen()),
+                );
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white70,
+                side: const BorderSide(color: Colors.white24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 14,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              child: const Text(
+                'チェックインする',
+                style: TextStyle(
+                  letterSpacing: 2,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+// ゴーストシルエット: 汎用動物の輪郭を薄白で描く（Reiスタイル）
+class _GhostAnimalPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.08)
+      ..style = PaintingStyle.fill;
+
+    final w = size.width;
+    final h = size.height;
+    final path = Path();
+
+    // 汎用4足動物シルエット（フォールバックと同じ構造）
+    path.addOval(Rect.fromLTWH(w * 0.18, h * 0.35, w * 0.50, h * 0.32));
+    path.addOval(Rect.fromCenter(
+      center: Offset(w * 0.76, h * 0.30),
+      width: w * 0.28,
+      height: w * 0.26,
+    ));
+    path.addRect(Rect.fromLTWH(w * 0.62, h * 0.32, w * 0.12, h * 0.16));
+    for (final dx in [0.22, 0.36, 0.50, 0.62]) {
+      path.addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * dx, h * 0.64, w * 0.08, h * 0.22),
+        const Radius.circular(3),
+      ));
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_GhostAnimalPainter old) => false;
 }
 
 // ── Grid ────────────────────────────────────────────────────
