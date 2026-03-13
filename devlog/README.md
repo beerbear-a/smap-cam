@@ -10,6 +10,7 @@
 | [002_ios_ui_review.md](002_ios_ui_review.md) | Kenji "Texture" Nakamura | iOS UI/HIG レビュー & ブラシアップ | 2026-03-13 |
 | [003_animation_film_look.md](003_animation_film_look.md) | Maya Ishikawa / 石川 摩耶 | アニメーション & フィルムルック実装 | 2026-03-13 |
 | [004_product_manager.md](004_product_manager.md) | Yuki Tanaka / 田中 優希 | プロダクトロードマップ & MVP出荷判定 | 2026-03-13 |
+| [005_silhouette_pixel_art.md](005_silhouette_pixel_art.md) | Rei Suzuki / 鈴木 零 | シルエット & ピクセルアート（Flutter Canvas） | 2026-03-13 |
 
 ## チームコミュニケーション
 
