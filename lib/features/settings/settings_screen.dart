@@ -116,7 +116,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _SettingsTile(
               title: 'アプリ名',
               trailing: const Text(
-                'smap Cam / ZOOSMAP',
+                'ZootoCam',
                 style: TextStyle(color: Colors.white38, fontSize: 14),
               ),
             ),
@@ -289,8 +289,8 @@ class _WatermarkPreview extends ConsumerWidget {
                     right: 12,
                     child: Text(
                       username.isNotEmpty
-                          ? '@$username · ZOOSMAP'
-                          : '@username · ZOOSMAP',
+                          ? '@$username · ZootoCam'
+                          : '@username · ZootoCam',
                       style: const TextStyle(
                         color: Colors.white54,
                         fontSize: 11,

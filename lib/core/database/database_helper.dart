@@ -4,7 +4,7 @@ import '../models/film_session.dart';
 import '../models/photo.dart';
 
 class DatabaseHelper {
-  static const _databaseName = 'smap_cam.db';
+  static const _databaseName = 'zootocam.db';
   static const _databaseVersion = 1;
 
   static const tableFilmSessions = 'film_sessions';

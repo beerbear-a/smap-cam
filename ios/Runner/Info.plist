@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>ja</string>
     <key>CFBundleDisplayName</key>
-    <string>smap Cam</string>
+    <string>ZootoCam</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>smap_cam</string>
+    <string>zootocam</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -25,7 +25,7 @@
 
     <!-- Camera -->
     <key>NSCameraUsageDescription</key>
-    <string>smap Cam はフィルムカメラ体験のためにカメラを使用します</string>
+    <string>ZootoCam はフィルムカメラ体験のためにカメラを使用します</string>
 
     <!-- Location -->
     <key>NSLocationWhenInUseUsageDescription</key>

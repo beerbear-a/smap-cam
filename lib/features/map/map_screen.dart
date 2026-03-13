@@ -91,7 +91,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'smap Cam',
+                        'ZootoCam',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 22,

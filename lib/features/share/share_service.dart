@@ -12,11 +12,11 @@ class ShareService {
     final memo = photo.memo ?? '';
     final location = session?.locationName ?? session?.title ?? '';
 
-    final text = '''📷 smap Cam
+    final text = '''📷 ZootoCam
 ${subject.isNotEmpty ? subject : session?.title ?? ''}${location.isNotEmpty ? '\n$location' : ''}
 ${memo.isNotEmpty ? '\n$memo' : ''}
 
-#smapCam''';
+#ZootoCam''';
 
     final file = File(photo.imagePath);
     if (file.existsSync()) {
@@ -42,11 +42,11 @@ ${memo.isNotEmpty ? '\n$memo' : ''}
         .toSet()
         .join(', ');
 
-    final text = '''📷 smap Cam
+    final text = '''📷 ZootoCam
 $location${subjects.isNotEmpty ? '\n$subjects' : ''}
 ${memo.isNotEmpty ? '\n$memo' : ''}
 
-#smapCam''';
+#ZootoCam''';
 
     final imagePaths = photos
         .where((p) => File(p.imagePath).existsSync())

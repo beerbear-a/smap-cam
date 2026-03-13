@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace "com.example.smapcam"
+    namespace "com.example.zootocam"
     compileSdk flutter.compileSdkVersion
     ndkVersion flutter.ndkVersion
 
@@ -19,7 +19,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.example.smapcam"
+        applicationId "com.example.zootocam"
         minSdk 24
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode

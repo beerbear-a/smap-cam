@@ -80,7 +80,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'smap Cam',
+                        'ZootoCam',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 20,

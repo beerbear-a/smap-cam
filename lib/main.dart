@@ -19,16 +19,16 @@ void main() async {
     ),
   );
 
-  runApp(const ProviderScope(child: SmapCamApp()));
+  runApp(const ProviderScope(child: ZootoCamApp()));
 }
 
-class SmapCamApp extends StatelessWidget {
-  const SmapCamApp({super.key});
+class ZootoCamApp extends StatelessWidget {
+  const ZootoCamApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'smap Cam',
+      title: 'ZootoCam',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(

@@ -1,4 +1,4 @@
-package com.example.smapcam
+package com.example.zootocam
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
