@@ -166,20 +166,28 @@ shaders/film_iso800.frag
 
 ## 実装済み機能（MVP状況）
 
+最終更新: 2026-03-14 Sprint 4 EOD
+
 | 機能 | 状態 |
 |------|------|
 | カメラ（GLSLシェーダー・フォーカス・フラッシュ） | ✅ 完成 |
 | チェックイン（GPS自動検出・手動選択・野生モード） | ✅ 完成 |
 | フィルム現像フロー | ✅ 完成 |
 | ジャーナル（動物タグ付け・メモ） | ✅ 完成 |
-| 図鑑（コレクション・グリッド表示） | ✅ 完成 |
-| マップ（Mapbox・ピンタップ→詳細） | ✅ 完成 |
-| コンタクトシート書き出し | ✅ 完成 |
-| シェア（透かし・share_plus） | ✅ 完成 |
+| 図鑑（CustomPainter シルエット 32種） | ✅ 完成（西村監修済み） |
+| 図鑑 空状態UI（encounters = 0） | 🔴 未実装（Sprint 4 残） |
+| マップ（Mapbox・ピンタップ→セッション詳細） | ✅ 完成 |
+| MapScreen FAB ラベル（「動物園へ」） | 🔴 未実装（Sprint 4 残） |
+| コンタクトシート書き出し（フィルムPNG） | ✅ 完成 |
+| WatermarkService（透かし合成 dart:ui） | ✅ 完成 |
+| ShareService（透かし統合・sharePhoto / shareSession） | ✅ 完成 |
+| ShareService ↔ usernameProvider 接続 | 🔴 未接続（呼び出し元の ref 接続が必要） |
 | 設定（username・透かしプレビュー） | ✅ 完成 |
-| LUT追加（2種目以降） | 🔜 未着手 |
-| 買い切り（¥370 Pro） | 🔜 未着手 |
-| DBシード（JAZA動物データ） | 🔜 未着手 |
+| LUT: KODAK / WARM（無料）/ FUJI / MONO（Pro予告） | ✅ 完成 |
+| LUT FREE バッジ表示 | ✅ 完成 |
+| isPro フラグ（natural+warm=false, fuji+mono=true） | ✅ 完成 |
+| 買い切り（¥370 Pro）ゲート処理 | ⏳ POST-RELEASE |
+| JAZAデータ拡充（beerbear-a提出待ち） | ⏳ アプリ試験動作後 |
 
 ---
 
@@ -356,28 +364,44 @@ QA・TestFlight・審査対策       → 青山 美樹
 
 ### 現在のスプリント状況
 
+最終更新: 2026-03-14
+
 | Sprint | 状態 | 内容 |
 |--------|------|------|
 | Sprint 1 | ✅ 完了 | DBレイヤー・チェックイン・モデル定義 |
 | Sprint 2 | ✅ 完了 | タグ付けUX・図鑑シルエット・レアリティ |
 | Sprint 3 | ✅ 完了 | マップピンタップ・コンタクトシート書き出し |
-| **Sprint 4** | 🔥 進行中 | JAZAデータ拡充・透かし実装・LUT追加・Android検証 |
+| **Sprint 4** | 🔥 終盤（残3タスク） | 透かし実装・LUT追加・Android検証・UX修正 |
 | Sprint 5 | 🔜 | QA・TestFlight・リリース |
-| POST-RELEASE | ⏳ | 買い切り実装（リリース後の数字を見てから着手） |
+| POST-RELEASE | ⏳ | 買い切り実装・JAZAデータ本番投入 |
 
 ---
 
-### 残タスク（Sprint 4）
+### Sprint 4 完了タスク
+
+| タスク | 担当 | 完了日 |
+|--------|------|--------|
+| `LutType.warm` 追加（ゴールデンアワーLUT） | Maya | 2026-03-14 |
+| `isPro` フラグ設計 | Maya | 2026-03-14 |
+| `WatermarkService` 実装（dart:ui Canvas合成） | Kenji | 2026-03-14 |
+| `ShareService` 透かし統合 | Kenji | 2026-03-14 |
+| LUTセレクター FREE バッジ | Kenji | 2026-03-14 |
+| UX監査（5問題特定 / 藤井空） | Sora | 2026-03-14 |
+| 動物学コードレビュー（西村晴子） | 西村晴子 | 2026-03-14 |
+| シルエット修正（red_panda耳 / okapi縞 / meerkat直立） | Rei | 2026-03-14 |
+
+---
+
+### Sprint 4 残タスク（未完了）
 
 | # | タスク | 担当 | 優先度 |
 |---|--------|------|--------|
-| 1 | JAZAデータ拡充（100種・30施設） | beerbear-a (PO) | P0 |
-| 2 | `WatermarkService` 実装 | Kenji | P0 |
-| 3 | LUT追加（Warm無料 + Pro 3種） | Maya | P1 |
-| 4 | Android実機検証（CameraX・LUT） | iOS Camera Engineer | P1 |
-| 5 | シルエット Path 追加（データ拡充分） | Rei | P1 |
-| 6 | コンタクトシートへのLUT適用 | Maya | P2（リリース後可） |
-| 7 | 買い切り実装 | 全員 | POST-RELEASE |
+| 1 | 図鑑の空状態UI（encounters=0 → チェックインCTA） | Kenji | 🔴 P0 |
+| 2 | MapScreen FAB ラベル追加（「動物園へ」） | Kenji | 🔴 P0 |
+| 3 | `sharePhoto` 呼び出し元に `usernameProvider` 接続 | Kenji | 🔴 P0 |
+| 4 | Android Exif回転修正（CameraPlugin.kt） | Jun Kang | 🔴 P0（Sprint5ブロッカー） |
+| 5 | Android LUTエクスポートパイプライン（AGSL） | Jun Kang | 🟠 P1 |
+| 6 | iOS Info.plist 権限説明文の日本語確認 | iOSエンジニア | 🟡 P2 |
 
 ---
 

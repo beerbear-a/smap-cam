@@ -80,6 +80,9 @@ enum UniqueFeature {
   longSnout,    // ツチブタ
   curvedNeck,   // フラミンゴ
   stripes,      // シマウマ
+  // ── 西村アドバイザー 修正追加 (2026-03-14) ──────────────
+  legStripes,   // オカピ（後肢・臀部の白黒縞）
+  upright,      // ミーアキャット（直立二足姿勢）
 }
 
 // ─────────────────────────────────────────────────────────
@@ -116,7 +119,7 @@ const Map<String, SilhouetteConfig> _configs = {
   'polar_bear':   SilhouetteConfig(base: SilhouetteBase.ursid, ears: EarType.smallRound, tail: TailType.veryShort, body: BodyShape.veryLarge),
   'sun_bear':     SilhouetteConfig(base: SilhouetteBase.ursid, ears: EarType.smallRound, tail: TailType.veryShort, body: BodyShape.medium, unique: UniqueFeature.chestPatch),
   'giant_panda':  SilhouetteConfig(base: SilhouetteBase.ursid, ears: EarType.mediumRound, tail: TailType.veryShort, body: BodyShape.round, unique: UniqueFeature.eyePatches),
-  'red_panda':    SilhouetteConfig(base: SilhouetteBase.ursid, ears: EarType.pointedSmall, tail: TailType.mediumFluffy, body: BodyShape.slender),
+  'red_panda':    SilhouetteConfig(base: SilhouetteBase.ursid, ears: EarType.smallRound, tail: TailType.mediumFluffy, body: BodyShape.slender), // 修正: pointedSmall → smallRound (西村 2026-03-14)
 
   // ── 霊長類 ───────────────────────────────────────────
   'gorilla':      SilhouetteConfig(base: SilhouetteBase.primate, ears: EarType.smallRound, tail: TailType.none, body: BodyShape.muscular, unique: UniqueFeature.knuckleWalk),
@@ -132,12 +135,12 @@ const Map<String, SilhouetteConfig> _configs = {
   'pygmy_hippo':  SilhouetteConfig(base: SilhouetteBase.megaherbivore, ears: EarType.smallRound, tail: TailType.stub, body: BodyShape.round),
   'zebra':        SilhouetteConfig(base: SilhouetteBase.megaherbivore, ears: EarType.pointedLarge, tail: TailType.mediumThin, body: BodyShape.horseLike, unique: UniqueFeature.stripes),
   'tapir':        SilhouetteConfig(base: SilhouetteBase.megaherbivore, ears: EarType.pointedLarge, tail: TailType.stub, body: BodyShape.barrel, unique: UniqueFeature.shortTrunk),
-  'okapi':        SilhouetteConfig(base: SilhouetteBase.megaherbivore, ears: EarType.pointedLarge, tail: TailType.mediumThin, body: BodyShape.horseLike),
+  'okapi':        SilhouetteConfig(base: SilhouetteBase.megaherbivore, ears: EarType.pointedLarge, tail: TailType.mediumThin, body: BodyShape.horseLike, unique: UniqueFeature.legStripes), // 修正: 後肢縞追加 (西村 2026-03-14)
   'white_rhino':  SilhouetteConfig(base: SilhouetteBase.megaherbivore, ears: EarType.pointedLarge, tail: TailType.stub, body: BodyShape.veryLarge, unique: UniqueFeature.doubleHorn),
 
   // ── 小型哺乳類 ────────────────────────────────────────
   'capybara':     SilhouetteConfig(base: SilhouetteBase.smallMammal, ears: EarType.smallRound, tail: TailType.none, body: BodyShape.barrel),
-  'meerkat':      SilhouetteConfig(base: SilhouetteBase.smallMammal, ears: EarType.pointedSmall, tail: TailType.mediumThin, body: BodyShape.slender),
+  'meerkat':      SilhouetteConfig(base: SilhouetteBase.smallMammal, ears: EarType.pointedSmall, tail: TailType.mediumThin, body: BodyShape.slender, unique: UniqueFeature.upright), // 修正: 直立明示 (西村 2026-03-14)
   'fennec':       SilhouetteConfig(base: SilhouetteBase.smallMammal, ears: EarType.veryLarge, tail: TailType.bushy, body: BodyShape.slender),
   'otter':        SilhouetteConfig(base: SilhouetteBase.smallMammal, ears: EarType.smallRound, tail: TailType.mediumThin, body: BodyShape.streamlined),
   'binturong':    SilhouetteConfig(base: SilhouetteBase.smallMammal, ears: EarType.tufted, tail: TailType.longPrehensile, body: BodyShape.medium),
@@ -422,6 +425,23 @@ class _SilhouettePainter extends CustomPainter {
       case UniqueFeature.shortTrunk:
         // バクの短い鼻
         p.addOval(Rect.fromLTWH(w * 0.79, h * 0.20, w * 0.08, h * 0.08));
+      case UniqueFeature.legStripes:
+        // オカピ: 後肢の白黒縞（後ろ2本の足に縞ストライプを重ねる）
+        final stripeY = bodyY + bodyH - h * 0.02;
+        for (int i = 0; i < 4; i++) {
+          p.addRect(Rect.fromLTWH(
+            w * 0.48 + i * (w * 0.025),
+            stripeY,
+            w * 0.012,
+            h * 0.22,
+          ));
+          p.addRect(Rect.fromLTWH(
+            w * 0.60 + i * (w * 0.025),
+            stripeY,
+            w * 0.012,
+            h * 0.22,
+          ));
+        }
       default:
         break;
     }
@@ -433,8 +453,7 @@ class _SilhouettePainter extends CustomPainter {
     final w = s.width;
     final h = s.height;
 
-    final isUpright = cfg.body == BodyShape.slender &&
-        cfg.ears == EarType.pointedSmall; // ミーアキャット判定
+    final isUpright = cfg.unique == UniqueFeature.upright; // 直立姿勢（ミーアキャット等）
 
     if (isUpright) {
       // 直立姿勢（ミーアキャット）
