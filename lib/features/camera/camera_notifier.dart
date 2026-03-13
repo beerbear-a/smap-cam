@@ -8,6 +8,7 @@ import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/services/camera_service.dart';
 import '../../core/location/location_service.dart';
+import 'widgets/film_preview.dart';
 
 class CameraState {
   final FilmSession? activeSession;
@@ -16,6 +17,7 @@ class CameraState {
   final bool flashEnabled;
   final int? textureId;
   final String? error;
+  final LutType selectedLut;
 
   const CameraState({
     this.activeSession,
@@ -24,6 +26,7 @@ class CameraState {
     this.flashEnabled = false,
     this.textureId,
     this.error,
+    this.selectedLut = LutType.natural,
   });
 
   int get remainingShots =>
@@ -43,6 +46,7 @@ class CameraState {
     bool? flashEnabled,
     int? textureId,
     String? error,
+    LutType? selectedLut,
   }) {
     return CameraState(
       activeSession: activeSession ?? this.activeSession,
@@ -51,6 +55,7 @@ class CameraState {
       flashEnabled: flashEnabled ?? this.flashEnabled,
       textureId: textureId ?? this.textureId,
       error: error,
+      selectedLut: selectedLut ?? this.selectedLut,
     );
   }
 }
@@ -82,6 +87,10 @@ class CameraNotifier extends StateNotifier<CameraState> {
     final newValue = !state.flashEnabled;
     await CameraService.setFlash(newValue);
     state = state.copyWith(flashEnabled: newValue);
+  }
+
+  void setLut(LutType lut) {
+    state = state.copyWith(selectedLut: lut);
   }
 
   /// 撮影 → 画像保存 → DBに記録
