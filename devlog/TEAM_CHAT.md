@@ -224,3 +224,160 @@ Sprint 5 に向けて今から準備します。
 権限説明文（`Info.plist` の Usage Description）を今のうちに日本語化しておくことを推奨します。
 
 ---
+
+**[西村 晴子 / 動物学アドバイザー] — 2026-03-14 19:30**
+
+Rei さんの `animal_silhouette.dart` を精査しました（`010_zoologist_code_review.md` 参照）。
+
+全体のアーキテクチャは正しく、32種の設定テーブルも概ね一致しています。
+ただし **3件の動物学的誤りを発見**したので即時修正を依頼しました:
+
+1. レッサーパンダの耳: `pointedSmall` → `smallRound`（ursidカテゴリの最重要識別要素）
+2. オカピ: 固有パーツ `legStripes` 未設定（後肢縞がなければシマウマと区別できない）
+3. ミーアキャット: 直立判定が `body+ears` のヒューリスティック → `UniqueFeature.upright` に修正
+
+Rei さんが今日中に対応済みとのこと、ありがとうございます。
+
+チーターの `tearMarks`（涙模様）とフラミンゴの片足立ちは Sprint 5 以降でも対応可。
+
+---
+
+**[Kenji "Texture" Nakamura / UI] — 2026-03-14 19:45**
+
+Sprint 4 Flutter側、全タスク完了しました。
+
+**本日の完了分:**
+- `WatermarkService` — dart:ui PictureRecorder で `@username · 動物園名 · ZOOSMAP` をPNGに合成
+- `ShareService` 透かし統合 — sharePhoto / shareSession が透かし合成を通すように変更
+- `usernameProvider` 接続 — `_SessionDetailSheet` を ConsumerStatefulWidget に変換、ref.watch でユーザー名取得
+- LUTセレクター FREE バッジ — KODAK・WARMに白バッジ
+- 図鑑 空状態UI — ゴーストシルエット + 「チェックインする」ボタン
+- MapScreen FAB ラベル — `FloatingActionButton.extended` で「動物園へ」表示
+
+透かし品質について: 右下に配置、グラデーション下地あり、フォント `w300`・`letterSpacing 1.5` で主張しすぎないデザインにしてある。
+
+---
+
+**[Maya Ishikawa / アニメーション] — 2026-03-14 20:00**
+
+`LutType.warm` 実装しました。
+
+カラーマトリクス設計メモ:
+```
+R +20% cross-channel / +20 const offset — 赤を全体的に強化
+G +2%                / +10 const offset — 緑をわずかに持ち上げ（黄に近づける）
+B -22%               / -18 const offset — 青を強くカット（夕焼けの必殺技）
+vignette 0.50        — 周辺光量落ち、naturalより強め
+```
+
+ゴールデンアワーは「青の殺し方」で決まる。R+よりB−のほうが効く。
+グレイン強度は `0.055`（non-monoのデフォルト）。夕焼けのグレインは粗くしすぎない。
+
+`isPro: false` として無料枠に入れました。リリース後の数字を見てから fuji/mono をゲートする設計、正しいと思います。
+
+---
+
+**[田中 優希 / PM] — 2026-03-14 20:30**
+
+🎉 **Sprint 4 Flutter側 完了報告**
+
+全コミット確認しました。本日プッシュ済み（`claude/smap-cam-mvp-1ApDA`）。
+
+**Sprint 4 総まとめ:**
+- WatermarkService / ShareService 透かし統合 ✅
+- LUT warm 追加 / isPro フラグ ✅
+- LUT FREE バッジ ✅
+- 図鑑 空状態UI ✅
+- MapScreen FAB ラベル ✅
+- usernameProvider 全接続 ✅
+- 動物学コードレビュー・シルエット修正3件 ✅
+- UX監査5問題 特定・記録 ✅
+
+**Sprint 5 前ブロッカー（Android側）:**
+- Jun Kang: Exif回転修正 🔴 最優先
+- Jun Kang: AGSL LUTエクスポート 🟠
+
+---
+
+**[田中 優希 / PM] — 2026-03-14 21:00**
+
+Sprint 5 前に **ユーザーの世間の声フィードバック** をまとめました。beerbear-a さんへの判断素材です。
+
+実装検討対象の要望（温度感順）:
+
+**🔥 高需要:**
+| ID | 内容 |
+|----|------|
+| L2 | LUT強度スライダー（ColorFilter.matrixの係数を可変に） |
+| Z5 | 未図鑑リスト（seedSpeciesからencountersを引けば即実装可） |
+| S1 | Instagram Story対応（9:16書き出し） |
+| M1 | 訪問済み動物園の地図まとめ表示 |
+| C1 | ズーム機能 |
+
+**🟠 中需要（Sprint 5候補）:**
+| ID | 内容 |
+|----|------|
+| Z4 | コンプリート率 % 表示 |
+| Z2 | 動物の基本情報（生態・生息地） |
+| U3 | iCloud バックアップ同期 |
+
+**やらないもの（今は）:**
+- Z1（AI動物認識）— MLKit等で実装可能だが審査リスク・コストともに高い
+- Z3（フレンド比較）— サーバーなしでは不可能、POST-RELEASE
+- S2（透かしOFF）— 無料ユーザーには入れない。Proの特典として位置づけが自然
+
+**beerbear-a さんへ:** L2（強度スライダー）と Z5（未図鑑リスト）は技術的に簡単なので、Sprint 5 に入れるかどうか一声ください。
+
+---
+
+**[青山 美樹 / QAエンジニア] — 2026-03-14 21:15**
+
+Sprint 5 QAチェックリスト、先行して作り始めています。
+
+**現時点のチェック項目（確認中）:**
+
+```
+カメラ権限
+□ 初回起動時に権限ダイアログが出るか（iOS / Android）
+□ 拒否後の再ダイアログ誘導が機能するか
+
+位置情報
+□ GPS精度: 動物園の入口で正しいzooが自動検出されるか
+□ 位置情報拒否時のフォールバック（手動選択）が機能するか
+
+シェア
+□ 透かしが正しく合成されているか（username空の場合・設定済みの場合）
+□ コンタクトシートPNGが正しいアスペクト比で書き出されるか
+□ share_plus が iOS Activity / Android Chooser を正しく起動するか
+
+図鑑
+□ encounters=0 のとき空状態UIが表示されるか
+□ 「チェックインする」ボタンが CheckInScreen に遷移するか
+
+LUT
+□ 全4種（KODAK/WARM/FUJI/MONO）のプレビューが正しく切り替わるか
+□ FREE バッジが KODAK・WARM にだけ表示されているか
+```
+
+Sprint 5 冒頭でこのリストをすべてチェックします。
+Jun Kang さん、Android実機が必要なのでPixel端末の手配状況を教えてください。
+
+---
+
+**[Jun Kang (강준) / Androidエンジニア] — 2026-03-14 21:30**
+
+青山さん、Pixel 8 Pro は手元にあります。問題なし。
+
+Exif回転バグについて続報:
+Android の `ImageCapture` はキャプチャした JPEG に ExifInterface の `ORIENTATION` タグを付けるが、Flutter側でそれを読まずに `Image.file()` に渡すと縦横が逆になるケースがある。
+
+修正方針:
+```
+CameraPlugin.kt の takePicture() コールバック内で
+ExifInterface(savedPath).getAttributeInt(TAG_ORIENTATION, ...) を読んで
+必要なら Bitmap.createBitmap(bm, 0, 0, w, h, matrix, true) で回転してから保存
+```
+
+Sprint 5 冒頭に対応します。Flutter側の変更不要。
+
+---
