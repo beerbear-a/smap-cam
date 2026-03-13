@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class ShutterButton extends StatefulWidget {
   final VoidCallback? onPressed;
@@ -18,13 +19,14 @@ class _ShutterButtonState extends State<ShutterButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scale;
+  bool _isPressed = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 100),
+      duration: const Duration(milliseconds: 80),
     );
     _scale = Tween<double>(begin: 1.0, end: 0.88).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
@@ -37,23 +39,37 @@ class _ShutterButtonState extends State<ShutterButton>
     super.dispose();
   }
 
-  void _handleTap() {
-    if (widget.onPressed == null) return;
-    _controller.forward().then((_) {
-      _controller.reverse();
+  void _onTapDown(TapDownDetails _) {
+    if (widget.onPressed == null || widget.isCapturing) return;
+    _isPressed = true;
+    _controller.forward();
+    HapticFeedback.lightImpact();
+  }
+
+  void _onTapUp(TapUpDetails _) {
+    if (!_isPressed) return;
+    _isPressed = false;
+    _controller.reverse();
+    if (!widget.isCapturing) {
+      HapticFeedback.mediumImpact();
       widget.onPressed?.call();
-    });
+    }
+  }
+
+  void _onTapCancel() {
+    if (!_isPressed) return;
+    _isPressed = false;
+    _controller.reverse();
   }
 
   @override
   Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null && !widget.isCapturing;
+
     return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onPressed?.call();
-      },
-      onTapCancel: () => _controller.reverse(),
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
       child: ScaleTransition(
         scale: _scale,
         child: Container(
@@ -61,19 +77,17 @@ class _ShutterButtonState extends State<ShutterButton>
           height: 80,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: widget.onPressed == null
-                ? Colors.grey.withOpacity(0.4)
-                : Colors.white,
+            color: enabled ? Colors.white : Colors.grey.withValues(alpha: 0.4),
             border: Border.all(
-              color: Colors.white.withOpacity(0.6),
+              color: Colors.white.withValues(alpha: 0.6),
               width: 3,
             ),
             boxShadow: [
-              if (widget.onPressed != null)
+              if (enabled)
                 BoxShadow(
-                  color: Colors.white.withOpacity(0.3),
-                  blurRadius: 16,
-                  spreadRadius: 4,
+                  color: Colors.white.withValues(alpha: 0.25),
+                  blurRadius: 20,
+                  spreadRadius: 2,
                 ),
             ],
           ),

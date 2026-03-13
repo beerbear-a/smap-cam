@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'features/map/map_screen.dart';
 import 'features/zukan/zukan_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -19,6 +20,12 @@ class _MainScreenState extends State<MainScreen> {
     SettingsScreen(),
   ];
 
+  void _onTabTap(int index) {
+    if (index == _currentIndex) return;
+    HapticFeedback.selectionClick();
+    setState(() => _currentIndex = index);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -29,11 +36,13 @@ class _MainScreenState extends State<MainScreen> {
       ),
       bottomNavigationBar: _BottomNav(
         currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
+        onTap: _onTabTap,
       ),
     );
   }
 }
+
+// ── Bottom Navigation ────────────────────────────────────────
 
 class _BottomNav extends StatelessWidget {
   final int currentIndex;
@@ -44,9 +53,14 @@ class _BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.black,
-        border: Border(top: BorderSide(color: Colors.white12, width: 0.5)),
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withValues(alpha: 0.08),
+            width: 0.5,
+          ),
+        ),
       ),
       child: SafeArea(
         top: false,
@@ -62,15 +76,15 @@ class _BottomNav extends StatelessWidget {
                 onTap: () => onTap(0),
               ),
               _NavItem(
-                icon: Icons.auto_awesome_mosaic_outlined,
-                activeIcon: Icons.auto_awesome_mosaic,
+                icon: Icons.grid_view_outlined,
+                activeIcon: Icons.grid_view,
                 label: '図鑑',
                 selected: currentIndex == 1,
                 onTap: () => onTap(1),
               ),
               _NavItem(
-                icon: Icons.tune_outlined,
-                activeIcon: Icons.tune,
+                icon: Icons.sliders_outlined,
+                activeIcon: Icons.sliders,
                 label: '設定',
                 selected: currentIndex == 2,
                 onTap: () => onTap(2),
@@ -107,19 +121,34 @@ class _NavItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // アクティブインジケータードット
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              width: selected ? 4 : 0,
+              height: selected ? 4 : 0,
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+            ),
             Icon(
               selected ? activeIcon : icon,
               color: selected ? Colors.white : Colors.white38,
               size: 22,
             ),
             const SizedBox(height: 3),
-            Text(
-              label,
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
               style: TextStyle(
                 color: selected ? Colors.white : Colors.white38,
                 fontSize: 10,
                 letterSpacing: 1,
+                fontWeight:
+                    selected ? FontWeight.w400 : FontWeight.w300,
               ),
+              child: Text(label),
             ),
           ],
         ),

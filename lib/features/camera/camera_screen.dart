@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/film_session.dart';
 import '../../core/services/camera_service.dart';
+import '../../core/utils/routes.dart';
 import '../develop/develop_screen.dart';
 import 'camera_notifier.dart';
 import 'widgets/film_counter_widget.dart';
@@ -50,8 +51,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     if (cameraState.activeSession?.status == FilmStatus.developing) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => DevelopScreen(
+          DarkFadeRoute(
+            page: DevelopScreen(
               sessionId: cameraState.activeSession!.sessionId,
             ),
           ),

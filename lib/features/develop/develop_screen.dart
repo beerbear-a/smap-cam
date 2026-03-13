@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
+import '../../core/utils/routes.dart';
 import '../camera/film_session_notifier.dart';
 import '../journal/journal_screen.dart';
 
@@ -168,8 +169,8 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
               child: ElevatedButton(
                 onPressed: () {
                   Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(
-                      builder: (_) => JournalScreen(
+                    DarkFadeRoute(
+                      page: JournalScreen(
                         sessionId: widget.sessionId,
                         photos: _photos,
                       ),

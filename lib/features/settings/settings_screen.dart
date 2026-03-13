@@ -229,11 +229,6 @@ class _UsernameField extends ConsumerWidget {
         ),
         onSubmitted: (v) {
           ref.read(usernameProvider.notifier).setUsername(v.trim());
-        },
-        onEditingComplete: () {
-          ref
-              .read(usernameProvider.notifier)
-              .setUsername(controller.text.trim());
           FocusScope.of(context).unfocus();
         },
       ),
@@ -251,7 +246,7 @@ class _WatermarkPreview extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.04),
+          color: Colors.white.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.white12),
         ),

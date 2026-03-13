@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/models/photo.dart';
+import '../../core/utils/routes.dart';
 import '../map/map_screen.dart';
 import '../share/share_service.dart';
 
@@ -73,7 +74,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     setState(() => _isSaving = false);
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const MapScreen()),
+        DarkFadeRoute(page: const MapScreen()),
         (route) => false,
       );
     }
@@ -218,7 +219,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
         hintText: hint,
         hintStyle: const TextStyle(color: Colors.white24),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.05),
+        fillColor: Colors.white.withValues(alpha: 0.05),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(4),
           borderSide: const BorderSide(color: Colors.white24),

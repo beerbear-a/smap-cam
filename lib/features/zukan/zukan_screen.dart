@@ -9,16 +9,17 @@ import '../../core/models/photo.dart';
 
 class AnimalEntry {
   final String subject;
-  final int encounterCount;
-  final Photo firstPhoto;
+  final List<Photo> photos;
   final List<FilmSession> sessions;
 
   const AnimalEntry({
     required this.subject,
-    required this.encounterCount,
-    required this.firstPhoto,
+    required this.photos,
     required this.sessions,
   });
+
+  int get encounterCount => photos.length;
+  Photo get firstPhoto => photos.first;
 }
 
 // ── Provider ────────────────────────────────────────────────
@@ -54,8 +55,7 @@ final zukanProvider = FutureProvider<List<AnimalEntry>>((ref) async {
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return AnimalEntry(
       subject: e.key,
-      encounterCount: photos.length,
-      firstPhoto: photos.first,
+      photos: photos,
       sessions: e.value.sessions,
     );
   }).toList();
@@ -409,8 +409,7 @@ class _AnimalDetailScreen extends ConsumerWidget {
               ),
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
-                  final file = File(entry.firstPhoto.imagePath);
-                  // Show only photos that match this subject
+                  final file = File(entry.photos[index].imagePath);
                   return file.existsSync()
                       ? Image.file(file, fit: BoxFit.cover)
                       : Container(
@@ -421,7 +420,7 @@ class _AnimalDetailScreen extends ConsumerWidget {
                           ),
                         );
                 },
-                childCount: 1,
+                childCount: entry.photos.length,
               ),
             ),
           ),
@@ -448,7 +447,7 @@ class _StatChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: Colors.white.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(

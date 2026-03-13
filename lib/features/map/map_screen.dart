@@ -5,6 +5,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
+import '../../core/utils/routes.dart';
 import '../camera/camera_screen.dart';
 import '../camera/film_session_notifier.dart';
 import '../share/share_service.dart';
@@ -182,7 +183,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         onCreated: (session) {
           Navigator.pop(ctx);
           Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const CameraScreen()),
+            DarkFadeRoute(page: const CameraScreen()),
           );
         },
       ),
@@ -464,7 +465,7 @@ class _NewFilmSheetState extends ConsumerState<_NewFilmSheet> {
             hintText: hint,
             hintStyle: const TextStyle(color: Colors.white24),
             filled: true,
-            fillColor: Colors.white.withOpacity(0.05),
+            fillColor: Colors.white.withValues(alpha: 0.05),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(4),
               borderSide: const BorderSide(color: Colors.white24),
