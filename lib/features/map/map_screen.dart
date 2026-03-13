@@ -1,12 +1,16 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:share_plus/share_plus.dart';
+
 import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/utils/routes.dart';
 import '../checkin/checkin_screen.dart';
+import '../share/contact_sheet_service.dart';
 import '../share/share_service.dart';
 import 'map_notifier.dart';
 
@@ -19,6 +23,8 @@ class MapScreen extends ConsumerStatefulWidget {
 
 class _MapScreenState extends ConsumerState<MapScreen> {
   MapboxMap? _mapboxMap;
+  PointAnnotationManager? _annotationManager;
+  final Map<String, FilmSession> _annotationSessionMap = {};
 
   @override
   void initState() {
@@ -37,7 +43,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final sessionsAsync = ref.read(mapProvider);
     sessionsAsync.whenData((sessions) async {
       if (_mapboxMap == null) return;
-      final annotationManager =
+
+      _annotationManager =
           await _mapboxMap!.annotations.createPointAnnotationManager();
 
       for (final session in sessions) {
@@ -53,15 +60,28 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           textColor: Colors.white.value,
           textOffset: [0, 1.5],
         );
-        await annotationManager.create(options);
+        final annotation = await _annotationManager!.create(options);
+        _annotationSessionMap[annotation.id] = session;
       }
+
+      _annotationManager!.addOnPointAnnotationClickListener(
+        _AnnotationClickListener(onTap: _onPinTapped),
+      );
     });
+  }
+
+  Future<void> _onPinTapped(PointAnnotation annotation) async {
+    final session = _annotationSessionMap[annotation.id];
+    if (session == null) return;
+    final photos =
+        await DatabaseHelper.getPhotosForSession(session.sessionId);
+    if (mounted) {
+      _showSessionDetail(context, session, photos);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final sessionsAsync = ref.watch(mapProvider);
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -81,7 +101,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           SafeArea(
             child: Column(
               children: [
-                // ヘッダー
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
@@ -98,14 +117,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           fontWeight: FontWeight.w200,
                           letterSpacing: 4,
                           shadows: [
-                            Shadow(
-                              color: Colors.black54,
-                              blurRadius: 8,
-                            ),
+                            Shadow(color: Colors.black54, blurRadius: 8),
                           ],
                         ),
                       ),
-                      // セッション一覧ボタン
                       IconButton(
                         onPressed: () => _showSessionList(context),
                         icon: const Icon(
@@ -118,15 +133,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               ],
             ),
-          ),
-
-          // ピンタップ時のセッション一覧（下から）
-          sessionsAsync.when(
-            data: (sessions) => sessions.isEmpty
-                ? const SizedBox.shrink()
-                : const SizedBox.shrink(),
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
           ),
         ],
       ),
@@ -174,10 +180,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
     );
   }
-
 }
 
-// ── セッション一覧シート ──────────────────────────────────
+// ── Mapbox アノテーションクリックリスナー ─────────────────────
+
+class _AnnotationClickListener extends OnPointAnnotationClickListener {
+  final void Function(PointAnnotation) onTap;
+
+  _AnnotationClickListener({required this.onTap});
+
+  @override
+  void onPointAnnotationClick(PointAnnotation annotation) {
+    onTap(annotation);
+  }
+}
+
+// ── セッション一覧シート ──────────────────────────────────────
 
 class _SessionListSheet extends ConsumerWidget {
   final void Function(FilmSession) onSessionTap;
@@ -216,9 +234,13 @@ class _SessionListSheet extends ConsumerWidget {
                 ),
                 subtitle: Text(
                   '${s.photoCount} 枚 · ${s.status.name}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 12),
                 ),
-                trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white38,
+                ),
               ),
             ),
             const SizedBox(height: 24),
@@ -229,9 +251,9 @@ class _SessionListSheet extends ConsumerWidget {
   }
 }
 
-// ── セッション詳細シート ──────────────────────────────────
+// ── セッション詳細シート ──────────────────────────────────────
 
-class _SessionDetailSheet extends StatelessWidget {
+class _SessionDetailSheet extends StatefulWidget {
   final FilmSession session;
   final List<Photo> photos;
 
@@ -239,6 +261,39 @@ class _SessionDetailSheet extends StatelessWidget {
     required this.session,
     required this.photos,
   });
+
+  @override
+  State<_SessionDetailSheet> createState() => _SessionDetailSheetState();
+}
+
+class _SessionDetailSheetState extends State<_SessionDetailSheet> {
+  bool _isGeneratingSheet = false;
+
+  Future<void> _exportContactSheet() async {
+    setState(() => _isGeneratingSheet = true);
+    try {
+      final path = await ContactSheetService.generate(
+        session: widget.session,
+        photos: widget.photos,
+      );
+      await Share.shareXFiles(
+        [XFile(path)],
+        text:
+            '📷 ${widget.session.locationName ?? widget.session.title}\n#ZOOSMAP',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('書き出しに失敗しました: $e'),
+            backgroundColor: Colors.red[900],
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGeneratingSheet = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -249,50 +304,58 @@ class _SessionDetailSheet extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── ヘッダー ──────────────────────────────────
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(20, 20, 12, 0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        session.title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w300,
-                          letterSpacing: 2,
-                        ),
-                      ),
-                      if (session.locationName != null)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          session.locationName!,
+                          widget.session.title,
                           style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 13,
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w300,
+                            letterSpacing: 2,
                           ),
                         ),
-                    ],
+                        if (widget.session.locationName != null)
+                          Text(
+                            widget.session.locationName!,
+                            style: const TextStyle(
+                              color: Colors.white38,
+                              fontSize: 13,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
+                  // 個別シェアボタン
                   IconButton(
                     onPressed: () async {
                       await ShareService.shareSession(
-                        session: session,
-                        photos: photos,
+                        session: widget.session,
+                        photos: widget.photos,
                       );
                     },
                     icon: const Icon(Icons.share, color: Colors.white54),
+                    tooltip: '写真をシェア',
                   ),
                 ],
               ),
             ),
-            if (session.memo != null && session.memo!.isNotEmpty)
+
+            if (widget.session.memo != null &&
+                widget.session.memo!.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 child: Text(
-                  session.memo!,
+                  widget.session.memo!,
                   style: const TextStyle(
                     color: Colors.white54,
                     fontSize: 14,
@@ -300,7 +363,43 @@ class _SessionDetailSheet extends StatelessWidget {
                   ),
                 ),
               ),
-            const SizedBox(height: 16),
+
+            // ── フィルム書き出しボタン ─────────────────────
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed:
+                      _isGeneratingSheet ? null : _exportContactSheet,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: _isGeneratingSheet
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: Colors.white38,
+                          ),
+                        )
+                      : const Icon(Icons.film_filter_outlined, size: 18),
+                  label: Text(
+                    _isGeneratingSheet ? '生成中...' : 'フィルムで書き出す',
+                    style: const TextStyle(
+                      letterSpacing: 1.5,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // ── 写真グリッド ───────────────────────────────
             Expanded(
               child: GridView.builder(
                 controller: scroll,
@@ -311,9 +410,9 @@ class _SessionDetailSheet extends StatelessWidget {
                   crossAxisSpacing: 2,
                   mainAxisSpacing: 2,
                 ),
-                itemCount: photos.length,
+                itemCount: widget.photos.length,
                 itemBuilder: (context, index) {
-                  final photo = photos[index];
+                  final photo = widget.photos[index];
                   final file = File(photo.imagePath);
                   return file.existsSync()
                       ? Image.file(file, fit: BoxFit.cover)
@@ -333,4 +432,3 @@ class _SessionDetailSheet extends StatelessWidget {
     );
   }
 }
-
