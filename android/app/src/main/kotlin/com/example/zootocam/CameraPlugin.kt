@@ -35,7 +35,7 @@ class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         flutterPluginBinding = binding
         context = binding.applicationContext
-        channel = MethodChannel(binding.binaryMessenger, "smap.cam/camera")
+        channel = MethodChannel(binding.binaryMessenger, "zootocam/camera")
         channel.setMethodCallHandler(this)
     }
 

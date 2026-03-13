@@ -1,10 +1,15 @@
 import 'package:flutter/services.dart';
 
 class CameraService {
-  static const _channel = MethodChannel('smap.cam/camera');
+  static const _channel = MethodChannel('zootocam/camera');
 
-  static Future<void> startCamera(int textureId) async {
-    await _channel.invokeMethod('startCamera', {'textureId': textureId});
+  static Future<Map<String, dynamic>> initializeCamera() async {
+    final result = await _channel.invokeMethod<Map>('initializeCamera');
+    return Map<String, dynamic>.from(result ?? {});
+  }
+
+  static Future<void> startCamera() async {
+    await _channel.invokeMethod('startCamera');
   }
 
   static Future<void> stopCamera() async {
@@ -23,8 +28,9 @@ class CameraService {
     await _channel.invokeMethod('setFlash', {'enabled': enabled});
   }
 
-  static Future<Map<String, dynamic>> initializeCamera() async {
-    final result = await _channel.invokeMethod<Map>('initializeCamera');
-    return Map<String, dynamic>.from(result ?? {});
+  /// タップフォーカス / タップ露出
+  /// [x], [y] は 0.0〜1.0 の正規化座標（左上が 0,0）
+  static Future<void> setFocusPoint(double x, double y) async {
+    await _channel.invokeMethod('setFocusPoint', {'x': x, 'y': y});
   }
 }
