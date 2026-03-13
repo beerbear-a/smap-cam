@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'features/map/map_screen.dart';
+import 'main_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,7 +39,7 @@ class SmapCamApp extends StatelessWidget {
         fontFamily: 'Helvetica Neue',
         useMaterial3: true,
       ),
-      home: const MapScreen(),
+      home: const MainScreen(),
     );
   }
 }
