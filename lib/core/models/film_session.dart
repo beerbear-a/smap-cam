@@ -6,6 +6,7 @@ class FilmSession {
   final String? locationName;
   final double? lat;
   final double? lng;
+  final String? zooId;
   final DateTime date;
   final String? memo;
   final FilmStatus status;
@@ -17,6 +18,7 @@ class FilmSession {
     this.locationName,
     this.lat,
     this.lng,
+    this.zooId,
     required this.date,
     this.memo,
     this.status = FilmStatus.shooting,
@@ -35,6 +37,7 @@ class FilmSession {
     String? locationName,
     double? lat,
     double? lng,
+    String? zooId,
     DateTime? date,
     String? memo,
     FilmStatus? status,
@@ -46,6 +49,7 @@ class FilmSession {
       locationName: locationName ?? this.locationName,
       lat: lat ?? this.lat,
       lng: lng ?? this.lng,
+      zooId: zooId ?? this.zooId,
       date: date ?? this.date,
       memo: memo ?? this.memo,
       status: status ?? this.status,
@@ -60,6 +64,7 @@ class FilmSession {
       'location_name': locationName,
       'lat': lat,
       'lng': lng,
+      'zoo_id': zooId,
       'date': date.millisecondsSinceEpoch,
       'memo': memo,
       'status': status.name,
@@ -74,6 +79,7 @@ class FilmSession {
       locationName: map['location_name'] as String?,
       lat: map['lat'] as double?,
       lng: map['lng'] as double?,
+      zooId: map['zoo_id'] as String?,
       date: DateTime.fromMillisecondsSinceEpoch(map['date'] as int),
       memo: map['memo'] as String?,
       status: FilmStatus.values.firstWhere(

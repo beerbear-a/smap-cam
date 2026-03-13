@@ -37,6 +37,7 @@ class FilmSessionNotifier extends StateNotifier<FilmSessionState> {
     String? locationName,
     double? lat,
     double? lng,
+    String? zooId,
   }) async {
     final session = FilmSession(
       sessionId: const Uuid().v4(),
@@ -44,6 +45,7 @@ class FilmSessionNotifier extends StateNotifier<FilmSessionState> {
       locationName: locationName,
       lat: lat,
       lng: lng,
+      zooId: zooId,
       date: DateTime.now(),
     );
     await DatabaseHelper.insertFilmSession(session);

@@ -6,8 +6,7 @@ import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/utils/routes.dart';
-import '../camera/camera_screen.dart';
-import '../camera/film_session_notifier.dart';
+import '../checkin/checkin_screen.dart';
 import '../share/share_service.dart';
 import 'map_notifier.dart';
 
@@ -132,9 +131,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ],
       ),
 
-      // 新規フィルムボタン
+      // 新規フィルムボタン（チェックイン → フィルム作成）
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _showNewFilmDialog(context),
+        onPressed: () => Navigator.of(context).push(
+          DarkFadeRoute(page: const CheckInScreen()),
+        ),
         backgroundColor: Colors.white,
         child: const Icon(Icons.add, color: Colors.black),
       ),
@@ -174,21 +175,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  void _showNewFilmDialog(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.grey[950],
-      builder: (ctx) => _NewFilmSheet(
-        onCreated: (session) {
-          Navigator.pop(ctx);
-          Navigator.of(context).push(
-            DarkFadeRoute(page: const CameraScreen()),
-          );
-        },
-      ),
-    );
-  }
 }
 
 // ── セッション一覧シート ──────────────────────────────────
@@ -348,139 +334,3 @@ class _SessionDetailSheet extends StatelessWidget {
   }
 }
 
-// ── 新規フィルムシート ────────────────────────────────────
-
-class _NewFilmSheet extends ConsumerStatefulWidget {
-  final void Function(FilmSession) onCreated;
-
-  const _NewFilmSheet({required this.onCreated});
-
-  @override
-  ConsumerState<_NewFilmSheet> createState() => _NewFilmSheetState();
-}
-
-class _NewFilmSheetState extends ConsumerState<_NewFilmSheet> {
-  final _titleController = TextEditingController();
-  final _locationController = TextEditingController();
-  bool _isCreating = false;
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _locationController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _create() async {
-    if (_titleController.text.trim().isEmpty) return;
-    setState(() => _isCreating = true);
-
-    final session = await ref.read(filmSessionProvider.notifier).createSession(
-          title: _titleController.text.trim(),
-          locationName: _locationController.text.trim().isEmpty
-              ? null
-              : _locationController.text.trim(),
-        );
-
-    widget.onCreated(session);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '新しいフィルム',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              letterSpacing: 3,
-              fontWeight: FontWeight.w300,
-            ),
-          ),
-          const SizedBox(height: 24),
-          _buildField(_titleController, 'タイトル', '上野動物園'),
-          const SizedBox(height: 16),
-          _buildField(_locationController, '場所 (任意)', '東京都台東区'),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isCreating ? null : _create,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-              child: _isCreating
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text(
-                      'フィルムを装填する',
-                      style: TextStyle(fontSize: 16, letterSpacing: 2),
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildField(
-    TextEditingController controller,
-    String label,
-    String hint,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white38,
-            fontSize: 12,
-            letterSpacing: 2,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: const TextStyle(color: Colors.white24),
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.05),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: const BorderSide(color: Colors.white24),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: const BorderSide(color: Colors.white12),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: const BorderSide(color: Colors.white38),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
