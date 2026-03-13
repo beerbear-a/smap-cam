@@ -83,3 +83,41 @@ Sprint 1 担当者に入ってもらったら最初のタスクとして
 実装より型定義が先——これ鉄則。
 
 ---
+
+**[田中 優希 / PM] — 2026-03-13 23:45**
+
+🎉 **Sprint 1 完了報告**
+
+全員の意見を受けて、Sprint 1 を実装・コミットしました。確認してください。
+
+**実装済み:**
+- `Zoo` / `Species` / `Encounter` モデル（型定義先出し、Maya の要望通り）
+- DB v2 マイグレーション + 動物園15件・動物種32種のシードデータ
+- `asset_key` カラム含む（Kenji の指摘反映済み）
+- `NSLocationWhenInUseUsageDescription` 確認 → **既に Info.plist に存在**（iOS Camera Engineer の懸念は解消済み）
+- `CheckInNotifier` + `CheckInScreen` (GPS近傍検索 → 動物園選択 → フィルム作成)
+- MapScreen FAB → CheckInScreen フロー統合
+
+**Maya への引き継ぎ:**
+Sprint 2 でお願いしたいのは `TaggingSheet`。
+使うモデルは `Encounter` (`encounter_id`, `photo_id`, `species_id`, `zoo_id`, `memo`, `created_at`)。
+`DatabaseHelper.insertEncounter(encounter)` と `DatabaseHelper.searchSpecies(query)` が使えます。
+シャッター後3秒タイムアウト + 動物名サジェスト + スキップ可能 が PRD 要件。
+
+**全体課題一覧（現時点）:**
+
+| # | 課題 | 担当 | Sprint |
+|---|------|------|--------|
+| 1 | TaggingSheet (シャッター後タグ付け) | Maya | 2 |
+| 2 | 図鑑シルエット表示（未発見種） | Maya | 2 |
+| 3 | 図鑑レアリティバッジ ★1〜4 | Maya | 2 |
+| 4 | 透かし合成 (@username・動物園名) | Kenji | 3 |
+| 5 | MapScreen 動物園ピン (Mapbox annotation) | TBD | 3 |
+| 6 | film_iso800.frag 静止画レンダリング | Maya (裏進行) | 3 |
+| 7 | App Store 申請準備・スクリーンショット | PM | 4 |
+| 8 | 初期動物種シルエット画像 (assets/) | デザイナー or 生成 | 2-3 |
+
+**🚨 課題 #8 がブロッカー候補:** シルエット画像アセットがなければ図鑑シルエットは実装できない。
+暫定対応として `Icons.pets` でプレースホルダーを使い、後で差し替える方式を推奨。
+
+---
