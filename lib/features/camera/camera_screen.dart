@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/film_session.dart';
 import '../../core/services/camera_service.dart';
@@ -81,11 +82,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _onShutter() {
-    // フラッシュ: forward→reverse で白フラッシュ
-    _flashController.forward().then((_) {
-      _flashController.reverse();
-    });
-    ref.read(cameraProvider.notifier).takePicture();
+    final cameraState = ref.read(cameraProvider);
+    // タイマーOFFのときだけフラッシュを即時表示
+    if (cameraState.timerMode == TimerMode.off) {
+      _flashController.forward().then((_) => _flashController.reverse());
+    }
+    HapticFeedback.mediumImpact();
+    ref.read(cameraProvider.notifier).triggerShutter();
   }
 
   void _onTapUp(TapUpDetails details) {
@@ -141,6 +144,16 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
             child: const ColoredBox(color: Colors.white),
           ),
 
+          // ── タイマーカウントダウン表示 ────────────────────
+          if (cameraState.timerCountdown != null)
+            _TimerCountdownOverlay(
+              count: cameraState.timerCountdown!,
+              onCancel: () {
+                HapticFeedback.lightImpact();
+                ref.read(cameraProvider.notifier).cancelTimer();
+              },
+            ),
+
           // ── UI オーバーレイ ──────────────────────────────
           SafeArea(
             child: Column(
@@ -148,11 +161,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                 // ヘッダー
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 14,
+                    horizontal: 12,
+                    vertical: 10,
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // 戻るボタン
                       IconButton(
@@ -163,9 +175,26 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           size: 20,
                         ),
                       ),
+
+                      const Spacer(),
+
                       FilmCounterWidget(
                         remaining: cameraState.remainingShots,
                         total: FilmSession.maxPhotos,
+                      ),
+
+                      const Spacer(),
+
+                      // グリッドトグル
+                      _HeaderIconButton(
+                        icon: cameraState.showGrid
+                            ? Icons.grid_on
+                            : Icons.grid_off,
+                        active: cameraState.showGrid,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          ref.read(cameraProvider.notifier).toggleGrid();
+                        },
                       ),
                     ],
                   ),
@@ -195,52 +224,84 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         ref.read(cameraProvider.notifier).setLut(lut),
                   ),
 
-                const SizedBox(height: 12),
+                // LUT 強度スライダー
+                if (cameraState.isCameraReady)
+                  _LutIntensitySlider(
+                    value: cameraState.lutIntensity,
+                    onChanged: (v) =>
+                        ref.read(cameraProvider.notifier).setLutIntensity(v),
+                  ),
+
+                const SizedBox(height: 8),
 
                 // シャッター行
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 56),
+                  padding: const EdgeInsets.only(bottom: 40),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // フラッシュトグル
-                      IconButton(
-                        onPressed: () =>
+                      // フラッシュ
+                      _HeaderIconButton(
+                        icon: cameraState.flashEnabled
+                            ? Icons.flash_on
+                            : Icons.flash_off,
+                        active: cameraState.flashEnabled,
+                        activeColor: Colors.yellow,
+                        onTap: () =>
                             ref.read(cameraProvider.notifier).toggleFlash(),
-                        icon: Icon(
-                          cameraState.flashEnabled
-                              ? Icons.flash_on
-                              : Icons.flash_off,
-                          color: cameraState.flashEnabled
-                              ? Colors.yellow
-                              : Colors.white54,
-                          size: 26,
-                        ),
                       ),
 
-                      const SizedBox(width: 32),
+                      const SizedBox(width: 16),
+
+                      // ライトリーク
+                      _LightLeakButton(
+                        current: cameraState.lightLeak,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          final next = LightLeakStrength.values[
+                              (LightLeakStrength.values
+                                          .indexOf(cameraState.lightLeak) +
+                                      1) %
+                                  LightLeakStrength.values.length];
+                          ref
+                              .read(cameraProvider.notifier)
+                              .setLightLeak(next);
+                        },
+                      ),
+
+                      const Spacer(),
 
                       ShutterButton(
                         isCapturing: cameraState.isCapturing,
                         onPressed: cameraState.canShoot ? _onShutter : null,
                       ),
 
-                      const SizedBox(width: 62),
-                    ],
-                  ),
-                ),
+                      const Spacer(),
 
-                // SHUTTER ラベル
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 20),
-                  child: Text(
-                    'SHUTTER',
-                    style: TextStyle(
-                      color: Colors.white24,
-                      fontSize: 10,
-                      letterSpacing: 5,
-                      fontWeight: FontWeight.w300,
-                    ),
+                      // セルフタイマー
+                      _TimerButton(
+                        mode: cameraState.timerMode,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          ref.read(cameraProvider.notifier).cycleTimerMode();
+                        },
+                      ),
+
+                      const SizedBox(width: 16),
+
+                      // シャッター音
+                      _HeaderIconButton(
+                        icon: cameraState.shutterSoundEnabled
+                            ? Icons.volume_up
+                            : Icons.volume_off,
+                        active: !cameraState.shutterSoundEnabled,
+                        onTap: () =>
+                            ref
+                                .read(cameraProvider.notifier)
+                                .toggleShutterSound(),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -259,6 +320,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     return FilmPreviewWidget(
       textureId: cameraState.textureId!,
       lutType: cameraState.selectedLut,
+      lutIntensity: cameraState.lutIntensity,
+      showGrid: cameraState.showGrid,
+      lightLeak: cameraState.lightLeak,
       onTapUp: _onTapUp,
       focusIndicator: _focusPoint != null
           ? Positioned(
@@ -286,7 +350,249 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 }
 
-// ── フォーカスレティクル（4隅コーナー型）─────────────────────
+// ── 汎用ヘッダーアイコンボタン ───────────────────────────────
+
+class _HeaderIconButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final Color activeColor;
+  final VoidCallback onTap;
+
+  const _HeaderIconButton({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+    this.activeColor = Colors.white,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(
+          icon,
+          color: active ? activeColor : Colors.white38,
+          size: 22,
+        ),
+      ),
+    );
+  }
+}
+
+// ── ライトリークボタン ────────────────────────────────────────
+
+class _LightLeakButton extends StatelessWidget {
+  final LightLeakStrength current;
+  final VoidCallback onTap;
+
+  const _LightLeakButton({required this.current, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final active = current != LightLeakStrength.none;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: active
+              ? Colors.orange.withValues(alpha: 0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: active
+                ? Colors.orange.withValues(alpha: 0.6)
+                : Colors.white24,
+            width: 0.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.flare,
+              size: 14,
+              color: active ? Colors.orange : Colors.white38,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              current.label,
+              style: TextStyle(
+                color: active ? Colors.orange : Colors.white38,
+                fontSize: 10,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── タイマーボタン ────────────────────────────────────────────
+
+class _TimerButton extends StatelessWidget {
+  final TimerMode mode;
+  final VoidCallback onTap;
+
+  const _TimerButton({required this.mode, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final active = mode != TimerMode.off;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: active
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: active ? Colors.white54 : Colors.white24,
+            width: 0.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.timer,
+              size: 14,
+              color: active ? Colors.white : Colors.white38,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              mode.label,
+              style: TextStyle(
+                color: active ? Colors.white : Colors.white38,
+                fontSize: 10,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── LUT強度スライダー ─────────────────────────────────────────
+
+class _LutIntensitySlider extends StatelessWidget {
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  const _LutIntensitySlider({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Row(
+        children: [
+          const Text(
+            'LUT',
+            style: TextStyle(
+              color: Colors.white24,
+              fontSize: 9,
+              letterSpacing: 2,
+            ),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 1.5,
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 5),
+                overlayShape: SliderComponentShape.noOverlay,
+                activeTrackColor: Colors.white54,
+                inactiveTrackColor: Colors.white12,
+                thumbColor: Colors.white,
+              ),
+              child: Slider(
+                value: value,
+                min: 0.0,
+                max: 1.0,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 28,
+            child: Text(
+              '${(value * 100).round()}',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 9,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── タイマーカウントダウンオーバーレイ ───────────────────────
+
+class _TimerCountdownOverlay extends StatelessWidget {
+  final int count;
+  final VoidCallback onCancel;
+
+  const _TimerCountdownOverlay({required this.count, required this.onCancel});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onCancel,
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.4),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                key: ValueKey(count),
+                tween: Tween(begin: 1.4, end: 1.0),
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                builder: (_, scale, child) =>
+                    Transform.scale(scale: scale, child: child),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 96,
+                    fontWeight: FontWeight.w100,
+                    letterSpacing: -4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'タップでキャンセル',
+                style: TextStyle(
+                  color: Colors.white38,
+                  fontSize: 12,
+                  letterSpacing: 2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── フォーカスレティクル ──────────────────────────────────────
 
 class _FocusReticlePainter extends CustomPainter {
   @override
@@ -300,24 +606,19 @@ class _FocusReticlePainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
 
-    // 4コーナー
     final paths = [
-      // 左上
       Path()
         ..moveTo(0, corner)
         ..lineTo(0, 0)
         ..lineTo(corner, 0),
-      // 右上
       Path()
         ..moveTo(w - corner, 0)
         ..lineTo(w, 0)
         ..lineTo(w, corner),
-      // 右下
       Path()
         ..moveTo(w, h - corner)
         ..lineTo(w, h)
         ..lineTo(w - corner, h),
-      // 左下
       Path()
         ..moveTo(corner, h)
         ..lineTo(0, h)

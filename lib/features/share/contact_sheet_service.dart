@@ -7,7 +7,18 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 
+// ── 書き出しフォーマット ──────────────────────────────────────
+
+enum ContactSheetFormat {
+  /// 正方形グリッド（デフォルト）
+  square,
+
+  /// 9:16 縦長 — Instagram Story / ショート動画カバー対応
+  story,
+}
+
 class ContactSheetService {
+  // ── Square フォーマット定数 ──────────────────────────────────
   static const _cols = 3;
   static const _photoSize = 300.0;
   static const _gap = 3.0;
@@ -15,7 +26,28 @@ class ContactSheetService {
   static const _sprocketH = 52.0;
   static const _metaH = 72.0;
 
+  // ── Story フォーマット定数 ───────────────────────────────────
+  static const _storyWidth = 1080.0;
+  static const _storyHeight = 1920.0;
+  static const _storyPhotoH = 360.0;
+  static const _storyPhotoGap = 4.0;
+  static const _storySidePad = 32.0;
+  static const _storySprocketH = 60.0;
+  static const _storyMetaH = 100.0;
+
   static Future<String> generate({
+    required FilmSession session,
+    required List<Photo> photos,
+    ContactSheetFormat format = ContactSheetFormat.square,
+  }) {
+    return format == ContactSheetFormat.story
+        ? _generateStory(session: session, photos: photos)
+        : _generateSquare(session: session, photos: photos);
+  }
+
+  // ── Square ───────────────────────────────────────────────────
+
+  static Future<String> _generateSquare({
     required FilmSession session,
     required List<Photo> photos,
   }) async {
@@ -38,16 +70,9 @@ class ContactSheetService {
       ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
     );
 
-    // ── 背景 ──────────────────────────────────────────
-    canvas.drawRect(
-      ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
-      ui.Paint()..color = const ui.Color(0xFF080808),
-    );
-
-    // ── 上スプロケット ─────────────────────────────────
+    _fillBackground(canvas, totalWidth, totalHeight, const ui.Color(0xFF080808));
     _drawSprocketZone(canvas, 0, totalWidth, _sprocketH);
 
-    // ── 写真グリッド ───────────────────────────────────
     for (int i = 0; i < images.length; i++) {
       final col = i % _cols;
       final row = i ~/ _cols;
@@ -61,62 +86,147 @@ class ContactSheetService {
       _drawPhotoOverlay(canvas, dst);
       canvas.restore();
 
-      // 動物名ラベル
       final subject = validPhotos[i].subject;
+      if (subject != null && subject.isNotEmpty) {
+        _drawText(canvas, subject, x + 6, y + _photoSize - 18, 10,
+            const ui.Color(0xEEFFFFFF),
+            maxWidth: _photoSize - 12);
+      }
+    }
+
+    final bottomSprocketY = _sprocketH + photoAreaH;
+    _drawSprocketZone(canvas, bottomSprocketY, totalWidth, _sprocketH);
+
+    final metaY = bottomSprocketY + _sprocketH;
+    final location = session.locationName ?? session.title;
+    final date = _formatDate(session.createdAt);
+    _drawText(canvas, '$location · $date', _sidePad, metaY + 26, 13,
+        const ui.Color(0xFFBBBBBB),
+        maxWidth: totalWidth * 0.7);
+    _drawText(canvas, 'ZOOSMAP', totalWidth - _sidePad - 72, metaY + 26, 11,
+        const ui.Color(0xFF555555),
+        maxWidth: 80);
+
+    return _saveCanvas(
+      recorder: recorder,
+      width: totalWidth.toInt(),
+      height: totalHeight.toInt(),
+      suffix: 'contact_${session.sessionId}',
+    );
+  }
+
+  // ── Story (9:16) ─────────────────────────────────────────────
+
+  static Future<String> _generateStory({
+    required FilmSession session,
+    required List<Photo> photos,
+  }) async {
+    final validPhotos =
+        photos.where((p) => File(p.imagePath).existsSync()).toList();
+    if (validPhotos.isEmpty) throw Exception('No photos available');
+
+    // Story: 最大4枚縦並び
+    final displayPhotos = validPhotos.take(4).toList();
+    final images =
+        await Future.wait(displayPhotos.map((p) => _loadImage(p.imagePath)));
+
+    const totalWidth = _storyWidth;
+    const totalHeight = _storyHeight;
+    const photoW = totalWidth - _storySidePad * 2;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(
+      recorder,
+      ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
+    );
+
+    // 背景
+    _fillBackground(canvas, totalWidth, totalHeight, const ui.Color(0xFF060606));
+
+    // 上スプロケット
+    _drawSprocketZone(canvas, 0, totalWidth, _storySprocketH);
+
+    // 写真縦並び（中央寄せ）
+    final photoAreaH = images.length * _storyPhotoH +
+        (images.length - 1) * _storyPhotoGap;
+    final photoStartY =
+        (_storyHeight - _storySprocketH * 2 - _storyMetaH - photoAreaH) / 2 +
+            _storySprocketH;
+
+    for (int i = 0; i < images.length; i++) {
+      final y = photoStartY + i * (_storyPhotoH + _storyPhotoGap);
+      final dst = ui.Rect.fromLTWH(_storySidePad, y, photoW, _storyPhotoH);
+
+      canvas.save();
+      canvas.clipRRect(
+        ui.RRect.fromRectAndRadius(dst, const ui.Radius.circular(6)),
+      );
+      _drawImageCover(canvas, images[i], dst);
+      _drawPhotoOverlay(canvas, dst);
+      canvas.restore();
+
+      final subject = displayPhotos[i].subject;
       if (subject != null && subject.isNotEmpty) {
         _drawText(
           canvas,
           subject,
-          x + 6,
-          y + _photoSize - 18,
-          10,
+          _storySidePad + 8,
+          y + _storyPhotoH - 24,
+          12,
           const ui.Color(0xEEFFFFFF),
-          maxWidth: _photoSize - 12,
+          maxWidth: photoW - 16,
         );
       }
     }
 
-    // ── 下スプロケット ─────────────────────────────────
-    final bottomSprocketY = _sprocketH + photoAreaH;
-    _drawSprocketZone(canvas, bottomSprocketY, totalWidth, _sprocketH);
+    // 下スプロケット
+    final bottomSprocketY = totalHeight - _storySprocketH - _storyMetaH;
+    _drawSprocketZone(canvas, bottomSprocketY, totalWidth, _storySprocketH);
 
-    // ── メタデータ ─────────────────────────────────────
-    final metaY = bottomSprocketY + _sprocketH;
+    // メタデータ
+    final metaY = bottomSprocketY + _storySprocketH;
     final location = session.locationName ?? session.title;
     final date = _formatDate(session.createdAt);
     _drawText(
       canvas,
       '$location · $date',
-      _sidePad,
-      metaY + 26,
-      13,
+      _storySidePad,
+      metaY + 32,
+      16,
       const ui.Color(0xFFBBBBBB),
       maxWidth: totalWidth * 0.7,
     );
     _drawText(
       canvas,
       'ZOOSMAP',
-      totalWidth - _sidePad - 72,
-      metaY + 26,
-      11,
+      totalWidth - _storySidePad - 100,
+      metaY + 32,
+      14,
       const ui.Color(0xFF555555),
-      maxWidth: 80,
+      maxWidth: 100,
     );
 
-    // ── PNG 書き出し ───────────────────────────────────
-    final picture = recorder.endRecording();
-    final img = await picture.toImage(totalWidth.toInt(), totalHeight.toInt());
-    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-    img.dispose();
-
-    final dir = await getTemporaryDirectory();
-    final file =
-        File('${dir.path}/zoosmap_contact_${session.sessionId}.png');
-    await file.writeAsBytes(byteData!.buffer.asUint8List());
-    return file.path;
+    return _saveCanvas(
+      recorder: recorder,
+      width: totalWidth.toInt(),
+      height: totalHeight.toInt(),
+      suffix: 'story_${session.sessionId}',
+    );
   }
 
-  // ── スプロケットゾーン描画 ──────────────────────────
+  // ── 共通ヘルパー ───────────────────────────────────────────
+
+  static void _fillBackground(
+    ui.Canvas canvas,
+    double w,
+    double h,
+    ui.Color color,
+  ) {
+    canvas.drawRect(
+      ui.Rect.fromLTWH(0, 0, w, h),
+      ui.Paint()..color = color,
+    );
+  }
 
   static void _drawSprocketZone(
     ui.Canvas canvas,
@@ -148,8 +258,6 @@ class ContactSheetService {
     }
   }
 
-  // ── BoxFit.cover で画像を描画 ─────────────────────
-
   static void _drawImageCover(
     ui.Canvas canvas,
     ui.Image image,
@@ -169,8 +277,6 @@ class ContactSheetService {
     canvas.drawImageRect(image, src, dst, ui.Paint());
   }
 
-  // ── 写真下部グラデーション ────────────────────────
-
   static void _drawPhotoOverlay(ui.Canvas canvas, ui.Rect dst) {
     final gradRect =
         ui.Rect.fromLTWH(dst.left, dst.bottom - 50, dst.width, 50);
@@ -181,8 +287,6 @@ class ContactSheetService {
     );
     canvas.drawRect(gradRect, ui.Paint()..shader = gradient);
   }
-
-  // ── テキスト描画 ───────────────────────────────────
 
   static void _drawText(
     ui.Canvas canvas,
@@ -215,5 +319,22 @@ class ContactSheetService {
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
     return frame.image;
+  }
+
+  static Future<String> _saveCanvas({
+    required ui.PictureRecorder recorder,
+    required int width,
+    required int height,
+    required String suffix,
+  }) async {
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(width, height);
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    img.dispose();
+
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/zoosmap_$suffix.png');
+    await file.writeAsBytes(byteData!.buffer.asUint8List());
+    return file.path;
   }
 }

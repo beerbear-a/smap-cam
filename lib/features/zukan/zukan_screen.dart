@@ -5,10 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
+import '../../core/models/species.dart';
 import '../../core/utils/routes.dart';
 import '../checkin/checkin_screen.dart';
 
-// ── Data class ──────────────────────────────────────────────
+// ── Data classes ─────────────────────────────────────────────
 
 class AnimalEntry {
   final String subject;
@@ -25,14 +26,33 @@ class AnimalEntry {
   Photo get firstPhoto => photos.first;
 }
 
-// ── Provider ────────────────────────────────────────────────
+class ZukanData {
+  final List<AnimalEntry> met;
+  final List<Species> allSpecies;
+  final Set<String> metSpeciesIds; // 出会い済み species_id
 
-final zukanProvider = FutureProvider<List<AnimalEntry>>((ref) async {
+  const ZukanData({
+    required this.met,
+    required this.allSpecies,
+    required this.metSpeciesIds,
+  });
+
+  int get totalSpecies => allSpecies.length;
+  int get metCount => metSpeciesIds.length;
+  double get completionRate =>
+      totalSpecies == 0 ? 0 : metCount / totalSpecies;
+
+  List<Species> get unmet =>
+      allSpecies.where((s) => !metSpeciesIds.contains(s.speciesId)).toList();
+}
+
+// ── Provider ─────────────────────────────────────────────────
+
+final zukanProvider = FutureProvider<ZukanData>((ref) async {
+  // 写真ベースの出会いリスト（フォトタグ = subject テキスト）
   final sessions = await DatabaseHelper.getAllFilmSessions();
-  final developedSessions =
-      sessions.where((s) => s.isDeveloped).toList();
+  final developedSessions = sessions.where((s) => s.isDeveloped).toList();
 
-  // subject → (photos, sessions)
   final Map<String, ({List<Photo> photos, List<FilmSession> sessions})>
       bySubject = {};
 
@@ -53,7 +73,7 @@ final zukanProvider = FutureProvider<List<AnimalEntry>>((ref) async {
     }
   }
 
-  final entries = bySubject.entries.map((e) {
+  final metEntries = bySubject.entries.map((e) {
     final photos = e.value.photos
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return AnimalEntry(
@@ -61,20 +81,52 @@ final zukanProvider = FutureProvider<List<AnimalEntry>>((ref) async {
       photos: photos,
       sessions: e.value.sessions,
     );
-  }).toList();
+  }).toList()
+    ..sort((a, b) => a.subject.compareTo(b.subject));
 
-  entries.sort((a, b) => a.subject.compareTo(b.subject));
-  return entries;
+  // 種マスターを取得（コンプリート率用）
+  final allSpecies = await DatabaseHelper.getAllSpecies();
+
+  // encounters テーブルから出会い済み species_id を取得
+  final encounterSummary = await DatabaseHelper.getEncounterSummary();
+  final metSpeciesIds =
+      encounterSummary.map((r) => r['species_id'] as String).toSet();
+
+  return ZukanData(
+    met: metEntries,
+    allSpecies: allSpecies,
+    metSpeciesIds: metSpeciesIds,
+  );
 });
 
-// ── Screen ──────────────────────────────────────────────────
+// ── Screen ───────────────────────────────────────────────────
 
-class ZukanScreen extends ConsumerWidget {
+class ZukanScreen extends ConsumerStatefulWidget {
   const ZukanScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final entriesAsync = ref.watch(zukanProvider);
+  ConsumerState<ZukanScreen> createState() => _ZukanScreenState();
+}
+
+class _ZukanScreenState extends ConsumerState<ZukanScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dataAsync = ref.watch(zukanProvider);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -85,8 +137,8 @@ class ZukanScreen extends ConsumerWidget {
             // ヘッダー
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Text(
                     '図鑑',
@@ -97,15 +149,9 @@ class ZukanScreen extends ConsumerWidget {
                       letterSpacing: 4,
                     ),
                   ),
-                  entriesAsync.when(
-                    data: (entries) => Text(
-                      '${entries.length} 種類を記録',
-                      style: const TextStyle(
-                        color: Colors.white38,
-                        fontSize: 13,
-                        letterSpacing: 1,
-                      ),
-                    ),
+                  const SizedBox(width: 16),
+                  dataAsync.when(
+                    data: (data) => _CompletionBadge(data: data),
                     loading: () => const SizedBox.shrink(),
                     error: (_, __) => const SizedBox.shrink(),
                   ),
@@ -113,14 +159,39 @@ class ZukanScreen extends ConsumerWidget {
               ),
             ),
 
-            const Divider(color: Colors.white12, height: 1),
+            // タブバー
+            TabBar(
+              controller: _tabController,
+              indicatorColor: Colors.white,
+              indicatorWeight: 1,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white38,
+              labelStyle: const TextStyle(
+                fontSize: 12,
+                letterSpacing: 2,
+                fontWeight: FontWeight.w400,
+              ),
+              tabs: const [
+                Tab(text: '出会い済み'),
+                Tab(text: '未発見'),
+              ],
+            ),
 
             // コンテンツ
             Expanded(
-              child: entriesAsync.when(
-                data: (entries) => entries.isEmpty
-                    ? _EmptyState()
-                    : _AnimalGrid(entries: entries),
+              child: dataAsync.when(
+                data: (data) => TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // タブ1: 出会い済み
+                    data.met.isEmpty
+                        ? _EmptyState()
+                        : _AnimalGrid(entries: data.met),
+
+                    // タブ2: 未発見
+                    _UndiscoveredList(species: data.unmet),
+                  ],
+                ),
                 loading: () => const Center(
                   child: CircularProgressIndicator(
                     color: Colors.white30,
@@ -142,6 +213,168 @@ class ZukanScreen extends ConsumerWidget {
   }
 }
 
+// ── コンプリートバッジ ────────────────────────────────────────
+
+class _CompletionBadge extends StatelessWidget {
+  final ZukanData data;
+
+  const _CompletionBadge({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = (data.completionRate * 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${data.metCount} / ${data.totalSpecies} 種',
+          style: const TextStyle(
+            color: Colors.white38,
+            fontSize: 13,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          width: 80,
+          child: LinearProgressIndicator(
+            value: data.completionRate,
+            backgroundColor: Colors.white12,
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white54),
+            minHeight: 2,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '$pct%',
+          style: const TextStyle(
+            color: Colors.white24,
+            fontSize: 10,
+            letterSpacing: 1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── 未発見リスト ─────────────────────────────────────────────
+
+class _UndiscoveredList extends StatelessWidget {
+  final List<Species> species;
+
+  const _UndiscoveredList({required this.species});
+
+  @override
+  Widget build(BuildContext context) {
+    if (species.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              '🎉',
+              style: TextStyle(fontSize: 48),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'すべての動物に出会いました！',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: species.length,
+      separatorBuilder: (_, __) =>
+          const Divider(color: Colors.white08, height: 1),
+      itemBuilder: (context, index) {
+        final sp = species[index];
+        return ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+          leading: _RarityIcon(rarity: sp.rarity),
+          title: Text(
+            sp.nameJa,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 15,
+              fontWeight: FontWeight.w300,
+            ),
+          ),
+          subtitle: Text(
+            sp.nameEn,
+            style: const TextStyle(
+              color: Colors.white24,
+              fontSize: 11,
+              letterSpacing: 0.5,
+            ),
+          ),
+          trailing: _RarityStars(rarity: sp.rarity),
+        );
+      },
+    );
+  }
+}
+
+class _RarityIcon extends StatelessWidget {
+  final int rarity;
+
+  const _RarityIcon({required this.rarity});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Center(
+        child: Text('?', style: TextStyle(color: Colors.white24, fontSize: 18)),
+      ),
+    );
+  }
+}
+
+class _RarityStars extends StatelessWidget {
+  final int rarity;
+
+  const _RarityStars({required this.rarity});
+
+  Color get _color {
+    switch (rarity) {
+      case 4:
+        return Colors.amber;
+      case 3:
+        return Colors.orange;
+      case 2:
+        return Colors.white60;
+      default:
+        return Colors.white24;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(
+        rarity,
+        (_) => Icon(Icons.star, size: 10, color: _color),
+      ),
+    );
+  }
+}
+
 // ── Empty state ─────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
@@ -153,7 +386,6 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // シルエット演出: 薄い動物のアイコン
             CustomPaint(
               size: const Size(80, 80),
               painter: _GhostAnimalPainter(),
@@ -200,10 +432,7 @@ class _EmptyState extends StatelessWidget {
               ),
               child: const Text(
                 'チェックインする',
-                style: TextStyle(
-                  letterSpacing: 2,
-                  fontSize: 13,
-                ),
+                style: TextStyle(letterSpacing: 2, fontSize: 13),
               ),
             ),
           ],
@@ -213,7 +442,6 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ゴーストシルエット: 汎用動物の輪郭を薄白で描く（Reiスタイル）
 class _GhostAnimalPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -225,7 +453,6 @@ class _GhostAnimalPainter extends CustomPainter {
     final h = size.height;
     final path = Path();
 
-    // 汎用4足動物シルエット（フォールバックと同じ構造）
     path.addOval(Rect.fromLTWH(w * 0.18, h * 0.35, w * 0.50, h * 0.32));
     path.addOval(Rect.fromCenter(
       center: Offset(w * 0.76, h * 0.30),
@@ -306,7 +533,6 @@ class _AnimalCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 写真
             Expanded(
               child: file.existsSync()
                   ? Image.file(
@@ -317,17 +543,13 @@ class _AnimalCard extends StatelessWidget {
                   : Container(
                       color: Colors.grey[900],
                       child: const Center(
-                        child: Text(
-                          '🦎',
-                          style: TextStyle(fontSize: 40),
-                        ),
+                        child: Text('🦎', style: TextStyle(fontSize: 40)),
                       ),
                     ),
             ),
-
-            // ラベル
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -387,27 +609,18 @@ class _AnimalDetailScreen extends ConsumerWidget {
       ),
       body: CustomScrollView(
         slivers: [
-          // 統計バー
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Row(
                 children: [
-                  _StatChip(
-                    label: '出会い',
-                    value: '${entry.encounterCount}',
-                  ),
+                  _StatChip(label: '出会い', value: '${entry.encounterCount}'),
                   const SizedBox(width: 12),
-                  _StatChip(
-                    label: '施設',
-                    value: '${entry.sessions.length}',
-                  ),
+                  _StatChip(label: '施設', value: '${entry.sessions.length}'),
                 ],
               ),
             ),
           ),
-
-          // 施設リスト
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
@@ -432,10 +645,7 @@ class _AnimalDetailScreen extends ConsumerWidget {
                   ),
                   title: Text(
                     session.locationName ?? session.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
                   subtitle: Text(
                     _formatDate(session.date),
@@ -454,8 +664,6 @@ class _AnimalDetailScreen extends ConsumerWidget {
               childCount: entry.sessions.length,
             ),
           ),
-
-          // 写真グリッド
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
@@ -494,7 +702,6 @@ class _AnimalDetailScreen extends ConsumerWidget {
               ),
             ),
           ),
-
           const SliverToBoxAdapter(child: SizedBox(height: 40)),
         ],
       ),

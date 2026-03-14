@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../share/watermark_service.dart';
 
-// ── Provider ────────────────────────────────────────────────
+// ── Username Provider ────────────────────────────────────────
 
 final usernameProvider =
     StateNotifierProvider<UsernameNotifier, String>((ref) {
@@ -23,6 +25,33 @@ class UsernameNotifier extends StateNotifier<String> {
     state = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('username', value);
+  }
+}
+
+// ── Watermark Position Provider ──────────────────────────────
+
+final watermarkPositionProvider =
+    StateNotifierProvider<WatermarkPositionNotifier, WatermarkPosition>((ref) {
+  return WatermarkPositionNotifier();
+});
+
+class WatermarkPositionNotifier extends StateNotifier<WatermarkPosition> {
+  WatermarkPositionNotifier() : super(WatermarkPosition.bottomRight) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final index = prefs.getInt('watermark_position') ?? 0;
+    state = WatermarkPosition.values[
+        index.clamp(0, WatermarkPosition.values.length - 1)];
+  }
+
+  Future<void> setPosition(WatermarkPosition position) async {
+    state = position;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+        'watermark_position', WatermarkPosition.values.indexOf(position));
   }
 }
 
@@ -59,7 +88,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: SafeArea(
         child: ListView(
           children: [
-            // ヘッダー
             const Padding(
               padding: EdgeInsets.fromLTRB(24, 20, 24, 20),
               child: Text(
@@ -75,7 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const Divider(color: Colors.white12, height: 1),
 
-            // プロフィールセクション
+            // プロフィール
             _SectionHeader(title: 'プロフィール'),
             _SettingsTile(
               title: 'ユーザー名',
@@ -85,7 +113,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const Divider(color: Colors.white12, height: 1),
 
-            // カメラセクション
+            // カメラ
             _SectionHeader(title: 'カメラ'),
             _SettingsTile(
               title: 'フィルム枚数',
@@ -98,8 +126,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const Divider(color: Colors.white12, height: 1),
 
-            // 透かしセクション
+            // 透かし
             _SectionHeader(title: '透かし'),
+            _WatermarkPositionSelector(),
             _WatermarkPreview(),
 
             const Divider(color: Colors.white12, height: 1),
@@ -122,7 +151,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
 
             const Divider(color: Colors.white12, height: 1),
-
             const SizedBox(height: 60),
           ],
         ),
@@ -182,10 +210,7 @@ class _SettingsTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
@@ -236,10 +261,81 @@ class _UsernameField extends ConsumerWidget {
   }
 }
 
+// ── 透かし位置選択 ────────────────────────────────────────────
+
+class _WatermarkPositionSelector extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(watermarkPositionProvider);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '透かし位置',
+            style: TextStyle(color: Colors.white, fontSize: 15),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: WatermarkPosition.values.map((pos) {
+              final isSelected = pos == current;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    ref
+                        .read(watermarkPositionProvider.notifier)
+                        .setPosition(pos);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color:
+                            isSelected ? Colors.white54 : Colors.white12,
+                        width: isSelected ? 1.0 : 0.5,
+                      ),
+                    ),
+                    child: Text(
+                      pos.label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color:
+                            isSelected ? Colors.white : Colors.white38,
+                        fontSize: 12,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 透かしプレビュー ──────────────────────────────────────────
+
 class _WatermarkPreview extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final username = ref.watch(usernameProvider);
+    final position = ref.watch(watermarkPositionProvider);
+
+    final label = username.isNotEmpty
+        ? '@$username · ZootoCam'
+        : '@username · ZootoCam';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -262,7 +358,6 @@ class _WatermarkPreview extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 12),
-            // 透かしイメージ
             Container(
               height: 120,
               width: double.infinity,
@@ -281,23 +376,41 @@ class _WatermarkPreview extends ConsumerWidget {
                   ),
                   Positioned(
                     bottom: 10,
-                    right: 12,
-                    child: Text(
-                      username.isNotEmpty
-                          ? '@$username · ZootoCam'
-                          : '@username · ZootoCam',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11,
-                        letterSpacing: 1,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black,
-                            blurRadius: 4,
+                    left: position == WatermarkPosition.bottomLeft
+                        ? 12
+                        : position == WatermarkPosition.bottomCenter
+                            ? 0
+                            : null,
+                    right: position == WatermarkPosition.bottomRight
+                        ? 12
+                        : position == WatermarkPosition.bottomCenter
+                            ? 0
+                            : null,
+                    child: position == WatermarkPosition.bottomCenter
+                        ? Center(
+                            child: Text(
+                              label,
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                                letterSpacing: 1,
+                                shadows: [
+                                  Shadow(color: Colors.black, blurRadius: 4),
+                                ],
+                              ),
+                            ),
+                          )
+                        : Text(
+                            label,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              letterSpacing: 1,
+                              shadows: [
+                                Shadow(color: Colors.black, blurRadius: 4),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                    ),
                   ),
                 ],
               ),

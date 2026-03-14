@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,36 @@ import '../../core/services/camera_service.dart';
 import '../../core/location/location_service.dart';
 import 'widgets/film_preview.dart';
 
+// ── セルフタイマー ─────────────────────────────────────────
+
+enum TimerMode { off, three, ten }
+
+extension TimerModeLabel on TimerMode {
+  String get label {
+    switch (this) {
+      case TimerMode.off:
+        return 'OFF';
+      case TimerMode.three:
+        return '3s';
+      case TimerMode.ten:
+        return '10s';
+    }
+  }
+
+  int get seconds {
+    switch (this) {
+      case TimerMode.off:
+        return 0;
+      case TimerMode.three:
+        return 3;
+      case TimerMode.ten:
+        return 10;
+    }
+  }
+}
+
+// ── State ─────────────────────────────────────────────────────
+
 class CameraState {
   final FilmSession? activeSession;
   final bool isCameraReady;
@@ -18,6 +49,12 @@ class CameraState {
   final int? textureId;
   final String? error;
   final LutType selectedLut;
+  final double lutIntensity; // 0.0〜1.0
+  final bool showGrid;
+  final LightLeakStrength lightLeak;
+  final TimerMode timerMode;
+  final int? timerCountdown; // null = タイマー非動作
+  final bool shutterSoundEnabled;
 
   const CameraState({
     this.activeSession,
@@ -27,6 +64,12 @@ class CameraState {
     this.textureId,
     this.error,
     this.selectedLut = LutType.natural,
+    this.lutIntensity = 1.0,
+    this.showGrid = false,
+    this.lightLeak = LightLeakStrength.none,
+    this.timerMode = TimerMode.off,
+    this.timerCountdown,
+    this.shutterSoundEnabled = true,
   });
 
   int get remainingShots =>
@@ -37,7 +80,8 @@ class CameraState {
       !activeSession!.isFull &&
       activeSession!.status == FilmStatus.shooting &&
       isCameraReady &&
-      !isCapturing;
+      !isCapturing &&
+      timerCountdown == null;
 
   CameraState copyWith({
     FilmSession? activeSession,
@@ -47,6 +91,13 @@ class CameraState {
     int? textureId,
     String? error,
     LutType? selectedLut,
+    double? lutIntensity,
+    bool? showGrid,
+    LightLeakStrength? lightLeak,
+    TimerMode? timerMode,
+    int? timerCountdown,
+    bool clearTimerCountdown = false,
+    bool? shutterSoundEnabled,
   }) {
     return CameraState(
       activeSession: activeSession ?? this.activeSession,
@@ -56,12 +107,30 @@ class CameraState {
       textureId: textureId ?? this.textureId,
       error: error,
       selectedLut: selectedLut ?? this.selectedLut,
+      lutIntensity: lutIntensity ?? this.lutIntensity,
+      showGrid: showGrid ?? this.showGrid,
+      lightLeak: lightLeak ?? this.lightLeak,
+      timerMode: timerMode ?? this.timerMode,
+      timerCountdown: clearTimerCountdown
+          ? null
+          : (timerCountdown ?? this.timerCountdown),
+      shutterSoundEnabled: shutterSoundEnabled ?? this.shutterSoundEnabled,
     );
   }
 }
 
+// ── Notifier ──────────────────────────────────────────────────
+
 class CameraNotifier extends StateNotifier<CameraState> {
   CameraNotifier() : super(const CameraState());
+
+  Timer? _timerTick;
+
+  @override
+  void dispose() {
+    _timerTick?.cancel();
+    super.dispose();
+  }
 
   Future<void> loadActiveSession() async {
     final session = await DatabaseHelper.getActiveSession();
@@ -89,13 +158,64 @@ class CameraNotifier extends StateNotifier<CameraState> {
     state = state.copyWith(flashEnabled: newValue);
   }
 
-  void setLut(LutType lut) {
-    state = state.copyWith(selectedLut: lut);
+  void setLut(LutType lut) => state = state.copyWith(selectedLut: lut);
+
+  void setLutIntensity(double intensity) =>
+      state = state.copyWith(lutIntensity: intensity.clamp(0.0, 1.0));
+
+  void toggleGrid() => state = state.copyWith(showGrid: !state.showGrid);
+
+  void setLightLeak(LightLeakStrength leak) =>
+      state = state.copyWith(lightLeak: leak);
+
+  void cycleTimerMode() {
+    final idx = TimerMode.values.indexOf(state.timerMode);
+    final next = TimerMode.values[(idx + 1) % TimerMode.values.length];
+    state = state.copyWith(timerMode: next);
+  }
+
+  void toggleShutterSound() =>
+      state =
+          state.copyWith(shutterSoundEnabled: !state.shutterSoundEnabled);
+
+  /// シャッター: タイマーあり/なし で分岐
+  void triggerShutter() {
+    if (!state.canShoot) return;
+    if (state.timerMode == TimerMode.off) {
+      takePicture();
+    } else {
+      _startTimer();
+    }
+  }
+
+  void _startTimer() {
+    final secs = state.timerMode.seconds;
+    state = state.copyWith(timerCountdown: secs);
+    _timerTick?.cancel();
+    _timerTick = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final current = state.timerCountdown ?? 0;
+      if (current <= 1) {
+        timer.cancel();
+        state = state.copyWith(clearTimerCountdown: true);
+        takePicture();
+      } else {
+        state = state.copyWith(timerCountdown: current - 1);
+      }
+    });
+  }
+
+  void cancelTimer() {
+    _timerTick?.cancel();
+    state = state.copyWith(clearTimerCountdown: true);
   }
 
   /// 撮影 → 画像保存 → DBに記録
   Future<void> takePicture() async {
-    if (!state.canShoot) return;
+    if (state.activeSession == null ||
+        state.activeSession!.isFull ||
+        state.activeSession!.status != FilmStatus.shooting ||
+        !state.isCameraReady ||
+        state.isCapturing) return;
 
     state = state.copyWith(isCapturing: true);
 
@@ -123,7 +243,6 @@ class CameraNotifier extends StateNotifier<CameraState> {
 
       await DatabaseHelper.insertPhoto(photo);
 
-      // 位置情報をセッションに更新（初回のみ）
       if (state.activeSession!.lat == null && position != null) {
         final updated = state.activeSession!.copyWith(
           lat: position.latitude,
@@ -133,7 +252,6 @@ class CameraNotifier extends StateNotifier<CameraState> {
         state = state.copyWith(activeSession: updated);
       }
 
-      // セッション再読み込み（photo_count 更新）
       final updated = await DatabaseHelper.getFilmSession(
         state.activeSession!.sessionId,
       );
@@ -142,7 +260,6 @@ class CameraNotifier extends StateNotifier<CameraState> {
         isCapturing: false,
       );
 
-      // 27枚達した場合は自動で現像フローへ
       if (updated?.isFull == true) {
         await _startDeveloping(updated!);
       }

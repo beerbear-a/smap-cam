@@ -186,6 +186,17 @@ shaders/film_iso800.frag
 | LUT: KODAK / WARM（無料）/ FUJI / MONO（Pro予告） | ✅ 完成 |
 | LUT FREE バッジ表示 | ✅ 完成 |
 | isPro フラグ（natural+warm=false, fuji+mono=true） | ✅ 完成 |
+| グリッドライン（3×3 ルール） | ✅ 完成 |
+| LUT強度スライダー（0〜100%） | ✅ 完成 |
+| ライトリーク効果（OFF/弱/中/強） | ✅ 完成 |
+| セルフタイマー（3秒/10秒） | ✅ 完成 |
+| シャッター音OFFトグル | ✅ 完成（native実装はiOS/Android担当） |
+| コンタクトシート 9:16 Story フォーマット | ✅ 完成 |
+| 透かし位置選択（右下/左下/中央下） | ✅ 完成 |
+| 図鑑タブ（出会い済み / 未発見） | ✅ 完成 |
+| 図鑑コンプリート率% | ✅ 完成 |
+| レアリティ4遭遇演出（LEGENDARY オーバーレイ） | ✅ 完成 |
+| フィルムカウンターアニメーション | ✅ 完成 |
 | 買い切り（¥370 Pro）ゲート処理 | ⏳ POST-RELEASE |
 | JAZAデータ拡充（beerbear-a提出待ち） | ⏳ アプリ試験動作後 |
 
@@ -372,7 +383,7 @@ QA・TestFlight・審査対策       → 青山 美樹
 | Sprint 2 | ✅ 完了 | タグ付けUX・図鑑シルエット・レアリティ |
 | Sprint 3 | ✅ 完了 | マップピンタップ・コンタクトシート書き出し |
 | **Sprint 4** | ✅ 完了 | 透かし実装・LUT追加・Android検証・UX修正 |
-| Sprint 5 | 🔜 | QA・TestFlight・リリース |
+| **Sprint 5** | 🔜（Flutter完了）| グリッド・LUT強度・ライトリーク・タイマー・9:16・図鑑完成度・レア演出 |
 | POST-RELEASE | ⏳ | 買い切り実装・JAZAデータ本番投入 |
 
 ---

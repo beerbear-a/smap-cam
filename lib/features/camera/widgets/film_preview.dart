@@ -48,35 +48,31 @@ enum LutType {
   }
 
   /// GLSL-style color matrix (20 values: 5×4 row-major for ColorFilter.matrix)
-  /// [R_r, R_g, R_b, R_a, R_const,
-  ///  G_r, G_g, G_b, G_a, G_const,
-  ///  B_r, B_g, B_b, B_a, B_const,
-  ///  A_r, A_g, A_b, A_a, A_const]
   List<double> get colorMatrix {
     switch (this) {
       // ── Kodak Gold 200: 暖色・シャドウ持ち上げ・低コントラスト ──
       case LutType.natural:
         return [
-          1.10,  0.05, -0.02, 0,  8,
-          0.02,  0.98,  0.00, 0,  3,
-         -0.03,  0.00,  0.88, 0, -6,
-          0,     0,     0,    1,  0,
+          1.10, 0.05, -0.02, 0, 8,
+          0.02, 0.98, 0.00, 0, 3,
+          -0.03, 0.00, 0.88, 0, -6,
+          0, 0, 0, 1, 0,
         ];
       // ── Warm Golden Hour: 強い赤/黄・青大幅カット・夕焼け感 ──
       case LutType.warm:
         return [
-          1.20,  0.08, -0.05, 0, 20,
-          0.04,  1.02,  0.00, 0, 10,
-         -0.08,  0.00,  0.78, 0,-18,
-          0,     0,     0,    1,  0,
+          1.20, 0.08, -0.05, 0, 20,
+          0.04, 1.02, 0.00, 0, 10,
+          -0.08, 0.00, 0.78, 0, -18,
+          0, 0, 0, 1, 0,
         ];
       // ── Fuji Superia: クール・高彩度・シアンシャドウ ──
       case LutType.fuji:
         return [
-          0.95, -0.02,  0.00, 0, -2,
-          0.00,  1.05,  0.03, 0,  4,
-          0.04,  0.04,  1.08, 0,  6,
-          0,     0,     0,    1,  0,
+          0.95, -0.02, 0.00, 0, -2,
+          0.00, 1.05, 0.03, 0, 4,
+          0.04, 0.04, 1.08, 0, 6,
+          0, 0, 0, 1, 0,
         ];
       // ── Ilford HP5: モノクロ・骨太グレイン感 ──
       case LutType.mono:
@@ -84,7 +80,7 @@ enum LutType {
           0.299, 0.587, 0.114, 0, 0,
           0.299, 0.587, 0.114, 0, 0,
           0.299, 0.587, 0.114, 0, 0,
-          0,     0,     0,     1, 0,
+          0, 0, 0, 1, 0,
         ];
     }
   }
@@ -95,11 +91,58 @@ enum LutType {
       case LutType.natural:
         return 0.45;
       case LutType.warm:
-        return 0.50; // 夕焼けは周辺光量落ち強め
+        return 0.50;
       case LutType.fuji:
         return 0.35;
       case LutType.mono:
-        return 0.65; // モノクロはビネット強め
+        return 0.65;
+    }
+  }
+}
+
+// Identity matrix for LUT intensity interpolation
+const _kIdentityMatrix = <double>[
+  1, 0, 0, 0, 0,
+  0, 1, 0, 0, 0,
+  0, 0, 1, 0, 0,
+  0, 0, 0, 1, 0,
+];
+
+List<double> _interpolateMatrix(List<double> lut, double t) {
+  return List.generate(
+    20,
+    (i) => _kIdentityMatrix[i] + (lut[i] - _kIdentityMatrix[i]) * t,
+  );
+}
+
+// ── Light Leak ───────────────────────────────────────────────
+
+enum LightLeakStrength { none, weak, medium, strong }
+
+extension LightLeakLabel on LightLeakStrength {
+  String get label {
+    switch (this) {
+      case LightLeakStrength.none:
+        return 'OFF';
+      case LightLeakStrength.weak:
+        return '弱';
+      case LightLeakStrength.medium:
+        return '中';
+      case LightLeakStrength.strong:
+        return '強';
+    }
+  }
+
+  double get opacity {
+    switch (this) {
+      case LightLeakStrength.none:
+        return 0;
+      case LightLeakStrength.weak:
+        return 0.25;
+      case LightLeakStrength.medium:
+        return 0.45;
+      case LightLeakStrength.strong:
+        return 0.70;
     }
   }
 }
@@ -109,6 +152,9 @@ enum LutType {
 class FilmPreviewWidget extends StatefulWidget {
   final int textureId;
   final LutType lutType;
+  final double lutIntensity; // 0.0〜1.0
+  final bool showGrid;
+  final LightLeakStrength lightLeak;
   final Widget? focusIndicator;
   final void Function(TapUpDetails)? onTapUp;
 
@@ -116,6 +162,9 @@ class FilmPreviewWidget extends StatefulWidget {
     super.key,
     required this.textureId,
     required this.lutType,
+    this.lutIntensity = 1.0,
+    this.showGrid = false,
+    this.lightLeak = LightLeakStrength.none,
     this.focusIndicator,
     this.onTapUp,
   });
@@ -134,7 +183,7 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
     // Grain animates at ~12fps (film-like, not digital-smooth)
     _grainController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 83), // ~12fps
+      duration: const Duration(milliseconds: 83),
     )..repeat();
   }
 
@@ -146,6 +195,11 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
 
   @override
   Widget build(BuildContext context) {
+    final matrix = _interpolateMatrix(
+      widget.lutType.colorMatrix,
+      widget.lutIntensity,
+    );
+
     return GestureDetector(
       onTapUp: widget.onTapUp,
       child: Stack(
@@ -154,22 +208,23 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
           // 1. Raw camera texture
           Texture(textureId: widget.textureId),
 
-          // 2. Color grade (ColorFilter is GPU-accelerated via Flutter's Skia/Impeller)
+          // 2. Color grade (intensity-interpolated)
           ColorFiltered(
-            colorFilter: ColorFilter.matrix(widget.lutType.colorMatrix),
+            colorFilter: ColorFilter.matrix(matrix),
             child: Texture(textureId: widget.textureId),
           ),
 
-          // 3. Optical lens softness (film lenses have ~0.3-0.5px spread vs digital)
+          // 3. Optical lens softness
           BackdropFilter(
             filter: ui.ImageFilter.blur(sigmaX: 0.3, sigmaY: 0.3),
             child: const SizedBox.expand(),
           ),
 
-          // 4. Vignette (CustomPaint — radial gradient)
+          // 4. Vignette
           CustomPaint(
             painter: _VignettePainter(
-              strength: widget.lutType.vignetteStrength,
+              strength:
+                  widget.lutType.vignetteStrength * widget.lutIntensity,
             ),
           ),
 
@@ -184,7 +239,23 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
             ),
           ),
 
-          // 6. Focus indicator (injected from parent)
+          // 6. Light leak
+          if (widget.lightLeak != LightLeakStrength.none)
+            IgnorePointer(
+              child: CustomPaint(
+                painter: _LightLeakPainter(strength: widget.lightLeak),
+              ),
+            ),
+
+          // 7. Grid overlay
+          if (widget.showGrid)
+            const IgnorePointer(
+              child: CustomPaint(
+                painter: _GridPainter(),
+              ),
+            ),
+
+          // 8. Focus indicator (injected from parent)
           if (widget.focusIndicator != null) widget.focusIndicator!,
         ],
       ),
@@ -220,9 +291,6 @@ class _VignettePainter extends CustomPainter {
 }
 
 // ── Grain Painter ────────────────────────────────────────────
-// Stamp-based grain: 画面を 4×4 ブロックに分割し、各フレームで
-// ランダムな明度変化を素早く描画する。
-// 完全ランダム per-pixel よりも 60× 高速。
 
 class _GrainPainter extends CustomPainter {
   final int frame;
@@ -235,7 +303,6 @@ class _GrainPainter extends CustomPainter {
     const blockSize = 3.0;
     final grainStrength = lutType == LutType.mono ? 0.10 : 0.055;
 
-    // Deterministic random from (x, y, frame) hash
     final paint = Paint()..style = PaintingStyle.fill;
 
     for (double x = 0; x < size.width; x += blockSize) {
@@ -243,7 +310,6 @@ class _GrainPainter extends CustomPainter {
         final hash = _hash(x.toInt(), y.toInt(), frame);
         final t = hash & 0xFF;
 
-        // Only paint some blocks (sparsity = film characteristic)
         if (t > 160) continue;
 
         final alpha = (t / 255.0) * grainStrength;
@@ -261,7 +327,6 @@ class _GrainPainter extends CustomPainter {
     }
   }
 
-  // Fast integer hash: frame-varied, spatially distributed
   int _hash(int x, int y, int f) {
     int h = x * 374761393 + y * 668265263 + f * 2246822519;
     h = (h ^ (h >> 13)) * 1274126177;
@@ -270,4 +335,100 @@ class _GrainPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GrainPainter old) => old.frame != old.frame;
+}
+
+// ── Light Leak Painter ───────────────────────────────────────
+// フィルム左端のオレンジ・赤のハレーション光漏れを再現
+
+class _LightLeakPainter extends CustomPainter {
+  final LightLeakStrength strength;
+
+  const _LightLeakPainter({required this.strength});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final opacity = strength.opacity;
+
+    // 左端から広がる光漏れ（オレンジ）
+    final leftRect = Rect.fromLTWH(0, 0, size.width * 0.55, size.height);
+    final leftGrad = RadialGradient(
+      center: const Alignment(-1.0, 0.2),
+      radius: 1.1,
+      colors: [
+        Colors.orange.withValues(alpha: opacity),
+        Colors.deepOrange.withValues(alpha: opacity * 0.4),
+        Colors.transparent,
+      ],
+      stops: const [0.0, 0.35, 1.0],
+    );
+    canvas.drawRect(
+      leftRect,
+      Paint()..shader = leftGrad.createShader(leftRect),
+    );
+
+    // 右上端の赤いハレーション（サブ）
+    final rightRect = Rect.fromLTWH(
+      size.width * 0.5,
+      0,
+      size.width * 0.5,
+      size.height * 0.4,
+    );
+    final rightGrad = RadialGradient(
+      center: const Alignment(1.2, -1.0),
+      radius: 0.9,
+      colors: [
+        Colors.red.withValues(alpha: opacity * 0.5),
+        Colors.transparent,
+      ],
+      stops: const [0.0, 1.0],
+    );
+    canvas.drawRect(
+      rightRect,
+      Paint()..shader = rightGrad.createShader(rightRect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_LightLeakPainter old) => old.strength != strength;
+}
+
+// ── Grid Painter ─────────────────────────────────────────────
+// 3×3 ルールグリッド（写真構図用）
+
+class _GridPainter extends CustomPainter {
+  const _GridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.25)
+      ..strokeWidth = 0.5;
+
+    // 縦2本
+    canvas.drawLine(
+      Offset(size.width / 3, 0),
+      Offset(size.width / 3, size.height),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 2 / 3, 0),
+      Offset(size.width * 2 / 3, size.height),
+      paint,
+    );
+
+    // 横2本
+    canvas.drawLine(
+      Offset(0, size.height / 3),
+      Offset(size.width, size.height / 3),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(0, size.height * 2 / 3),
+      Offset(size.width, size.height * 2 / 3),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter _) => false;
 }

@@ -381,3 +381,26 @@ ExifInterface(savedPath).getAttributeInt(TAG_ORIENTATION, ...) を読んで
 Sprint 5 冒頭に対応します。Flutter側の変更不要。
 
 ---
+
+---
+
+**[Kenji "Texture" Nakamura / Flutter UI] — 2026-03-14 23:00**
+
+Sprint 5 Flutter 実装、全タスク完了しました。詳細は `devlog/012` 参照。
+
+実装した内容:
+- グリッドライン / LUT強度スライダー / ライトリーク
+- セルフタイマー（3秒/10秒）/ シャッター音OFF
+- 図鑑タブ（出会い済み・未発見）/ コンプリート率%
+- コンタクトシート 9:16 Story フォーマット
+- 透かし位置選択（右下/左下/中央下）
+- レアリティ4遭遇演出（LEGENDARY オーバーレイ）
+- フィルムカウンターアニメーション（カチッとめくれる）
+
+青山さん → TestFlight の準備を進めてください。
+Jun さん → Android Exif回転の修正待ちです。終わったら連絡を。
+iOS Engineer → シャッター音OFF の native 実装（`shutterSoundEnabled` フラグを Platform Channel に渡す形で）お願いします。
+
+透かし位置の ShareService への接続（watermarkPositionProvider → WatermarkService.apply の position 引数）は
+Jun か iOS エンジニアとの調整次第で POST-RELEASE 扱いにしても良いと思います。beerbear-a 判断お願いします。
+
