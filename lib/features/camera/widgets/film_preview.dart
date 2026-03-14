@@ -334,7 +334,7 @@ class _GrainPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_GrainPainter old) => old.frame != old.frame;
+  bool shouldRepaint(_GrainPainter old) => old.frame != frame;
 }
 
 // ── Light Leak Painter ───────────────────────────────────────

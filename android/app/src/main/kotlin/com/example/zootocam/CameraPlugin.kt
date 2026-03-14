@@ -6,6 +6,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
+import java.util.concurrent.TimeUnit
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -26,6 +27,7 @@ class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
     private var flutterPluginBinding: FlutterPlugin.FlutterPluginBinding? = null
 
     private var cameraProvider: ProcessCameraProvider? = null
+    private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
     private var preview: Preview? = null
     private var cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -67,6 +69,7 @@ class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
             "stopCamera" -> stopCamera(result)
             "takePicture" -> takePicture(call, result)
             "setFlash" -> setFlash(call, result)
+            "setFocusPoint" -> setFocusPoint(call, result)
             else -> result.notImplemented()
         }
     }
@@ -112,7 +115,7 @@ class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
 
             try {
                 cameraProvider?.unbindAll()
-                cameraProvider?.bindToLifecycle(
+                camera = cameraProvider?.bindToLifecycle(
                     activity as LifecycleOwner,
                     cameraSelector,
                     preview,
@@ -171,6 +174,24 @@ class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
             ImageCapture.FLASH_MODE_ON
         else
             ImageCapture.FLASH_MODE_OFF
+        result.success(null)
+    }
+
+    private fun setFocusPoint(call: MethodCall, result: MethodChannel.Result) {
+        val x = (call.argument<Double>("x") ?: 0.5).toFloat()
+        val y = (call.argument<Double>("y") ?: 0.5).toFloat()
+
+        val camera = this.camera ?: run {
+            result.error("NOT_READY", "Camera not initialized", null)
+            return
+        }
+
+        val factory = SurfaceOrientedMeteringPointFactory(1f, 1f)
+        val point = factory.createPoint(x, y)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
+            .setAutoCancelDuration(5, TimeUnit.SECONDS)
+            .build()
+        camera.cameraControl.startFocusAndMetering(action)
         result.success(null)
     }
 }

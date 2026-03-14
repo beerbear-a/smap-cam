@@ -99,7 +99,7 @@ class ContactSheetService {
 
     final metaY = bottomSprocketY + _sprocketH;
     final location = session.locationName ?? session.title;
-    final date = _formatDate(session.createdAt);
+    final date = _formatDate(session.date);
     _drawText(canvas, '$location · $date', _sidePad, metaY + 26, 13,
         const ui.Color(0xFFBBBBBB),
         maxWidth: totalWidth * 0.7);
@@ -186,7 +186,7 @@ class ContactSheetService {
     // メタデータ
     final metaY = bottomSprocketY + _storySprocketH;
     final location = session.locationName ?? session.title;
-    final date = _formatDate(session.createdAt);
+    final date = _formatDate(session.date);
     _drawText(
       canvas,
       '$location · $date',

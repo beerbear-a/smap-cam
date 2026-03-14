@@ -7,6 +7,7 @@ import '../../core/models/photo.dart';
 import '../../core/models/species.dart';
 import '../../core/utils/routes.dart';
 import '../map/map_screen.dart';
+import '../settings/settings_screen.dart';
 import '../share/share_service.dart';
 
 class JournalScreen extends ConsumerStatefulWidget {
@@ -58,62 +59,74 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   Future<void> _save() async {
     setState(() => _isSaving = true);
 
-    // 入力されたすべての subject を収集
-    final subjectTexts = _entries
-        .map((e) => e.subjectController.text.trim())
-        .where((s) => s.isNotEmpty)
-        .toSet();
+    try {
+      // 入力されたすべての subject を収集
+      final subjectTexts = _entries
+          .map((e) => e.subjectController.text.trim())
+          .where((s) => s.isNotEmpty)
+          .toSet();
 
-    // レアリティ4チェック
-    Species? rareFind;
-    if (subjectTexts.isNotEmpty) {
-      final allSpecies = await DatabaseHelper.getAllSpecies();
-      final rarity4 =
-          allSpecies.where((s) => s.rarity == 4).toList();
-      for (final sp in rarity4) {
-        if (subjectTexts.any((t) =>
-            t.contains(sp.nameJa) || t.contains(sp.nameEn))) {
-          rareFind = sp;
-          break;
+      // レアリティ4チェック
+      Species? rareFind;
+      if (subjectTexts.isNotEmpty) {
+        final allSpecies = await DatabaseHelper.getAllSpecies();
+        final rarity4 =
+            allSpecies.where((s) => s.rarity == 4).toList();
+        for (final sp in rarity4) {
+          if (subjectTexts.any((t) =>
+              t.contains(sp.nameJa) || t.contains(sp.nameEn))) {
+            rareFind = sp;
+            break;
+          }
         }
       }
-    }
 
-    for (final entry in _entries) {
-      await DatabaseHelper.updatePhotoJournal(
-        entry.photo.photoId,
-        entry.subjectController.text.trim().isEmpty
-            ? null
-            : entry.subjectController.text.trim(),
-        entry.memoController.text.trim().isEmpty
-            ? null
-            : entry.memoController.text.trim(),
-      );
-    }
-    if (_sessionMemoController.text.trim().isNotEmpty) {
-      final session = await DatabaseHelper.getFilmSession(widget.sessionId);
-      if (session != null) {
-        await DatabaseHelper.updateFilmSession(
-          session.copyWith(memo: _sessionMemoController.text.trim()),
+      for (final entry in _entries) {
+        await DatabaseHelper.updatePhotoJournal(
+          entry.photo.photoId,
+          entry.subjectController.text.trim().isEmpty
+              ? null
+              : entry.subjectController.text.trim(),
+          entry.memoController.text.trim().isEmpty
+              ? null
+              : entry.memoController.text.trim(),
         );
       }
-    }
+      if (_sessionMemoController.text.trim().isNotEmpty) {
+        final session = await DatabaseHelper.getFilmSession(widget.sessionId);
+        if (session != null) {
+          await DatabaseHelper.updateFilmSession(
+            session.copyWith(memo: _sessionMemoController.text.trim()),
+          );
+        }
+      }
 
-    setState(() => _isSaving = false);
+      setState(() => _isSaving = false);
 
-    // レアリティ4演出
-    if (rareFind != null && mounted) {
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _showRareOverlay = true;
-        _rareSpeciesName = rareFind!.nameJa;
-      });
-      // 演出後に自動遷移
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) _navigateToMap();
-      });
-    } else if (mounted) {
-      _navigateToMap();
+      // レアリティ4演出
+      if (rareFind != null && mounted) {
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _showRareOverlay = true;
+          _rareSpeciesName = rareFind!.nameJa;
+        });
+        // 演出後に自動遷移
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) _navigateToMap();
+        });
+      } else if (mounted) {
+        _navigateToMap();
+      }
+    } catch (e) {
+      setState(() => _isSaving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存に失敗しました: $e'),
+            backgroundColor: Colors.red[900],
+          ),
+        );
+      }
     }
   }
 
@@ -236,6 +249,8 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                               session: await DatabaseHelper.getFilmSession(
                                 widget.sessionId,
                               ),
+                              username: ref.read(usernameProvider),
+                              position: ref.read(watermarkPositionProvider),
                             );
                           },
                           icon: const Icon(Icons.share, size: 16),

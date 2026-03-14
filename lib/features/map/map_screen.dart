@@ -311,6 +311,7 @@ class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final username = ref.watch(usernameProvider);
+    final watermarkPosition = ref.watch(watermarkPositionProvider);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
@@ -356,6 +357,7 @@ class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
                         session: widget.session,
                         photos: widget.photos,
                         username: username,
+                        position: watermarkPosition,
                       );
                     },
                     icon: const Icon(Icons.share, color: Colors.white54),

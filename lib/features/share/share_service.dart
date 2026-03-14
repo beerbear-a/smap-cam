@@ -4,12 +4,15 @@ import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import 'watermark_service.dart';
 
+export 'watermark_service.dart' show WatermarkPosition;
+
 class ShareService {
   /// 1枚の写真をシェア。透かしを合成してから渡す。
   static Future<void> sharePhoto({
     required Photo photo,
     FilmSession? session,
     String username = '',
+    WatermarkPosition position = WatermarkPosition.bottomRight,
   }) async {
     final subject = photo.subject ?? '';
     final memo = photo.memo ?? '';
@@ -27,6 +30,7 @@ ${memo.isNotEmpty ? '\n$memo' : ''}
         imagePath: photo.imagePath,
         username: username,
         locationName: location,
+        position: position,
       );
       await Share.shareXFiles(
         [XFile(watermarkedPath)],
@@ -42,6 +46,7 @@ ${memo.isNotEmpty ? '\n$memo' : ''}
     required FilmSession session,
     required List<Photo> photos,
     String username = '',
+    WatermarkPosition position = WatermarkPosition.bottomRight,
   }) async {
     final location = session.locationName ?? session.title;
     final memo = session.memo ?? '';
@@ -69,6 +74,7 @@ ${memo.isNotEmpty ? '\n$memo' : ''}
             imagePath: p.imagePath,
             username: username,
             locationName: location,
+            position: position,
           ),
         ),
       );
