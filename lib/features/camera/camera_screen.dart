@@ -288,19 +288,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         },
                       ),
 
-                      const SizedBox(width: 16),
-
-                      // シャッター音
-                      _HeaderIconButton(
-                        icon: cameraState.shutterSoundEnabled
-                            ? Icons.volume_up
-                            : Icons.volume_off,
-                        active: !cameraState.shutterSoundEnabled,
-                        onTap: () =>
-                            ref
-                                .read(cameraProvider.notifier)
-                                .toggleShutterSound(),
-                      ),
+                      // NOTE: シャッター音OFFは日本国内法規制により非提供
+                      const SizedBox(width: 8),
                     ],
                   ),
                 ),

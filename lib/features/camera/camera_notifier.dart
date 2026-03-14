@@ -54,7 +54,10 @@ class CameraState {
   final LightLeakStrength lightLeak;
   final TimerMode timerMode;
   final int? timerCountdown; // null = タイマー非動作
-  final bool shutterSoundEnabled;
+
+  // NOTE: シャッター音OFFは日本国内では盗撮規制法により禁止。
+  // iOS（日本向けモデル）はAVFoundationレベルで強制ON、
+  // Android日本向け端末も同様。UI・実装ともに提供しない。
 
   const CameraState({
     this.activeSession,
@@ -69,7 +72,6 @@ class CameraState {
     this.lightLeak = LightLeakStrength.none,
     this.timerMode = TimerMode.off,
     this.timerCountdown,
-    this.shutterSoundEnabled = true,
   });
 
   int get remainingShots =>
@@ -97,7 +99,6 @@ class CameraState {
     TimerMode? timerMode,
     int? timerCountdown,
     bool clearTimerCountdown = false,
-    bool? shutterSoundEnabled,
   }) {
     return CameraState(
       activeSession: activeSession ?? this.activeSession,
@@ -114,7 +115,6 @@ class CameraState {
       timerCountdown: clearTimerCountdown
           ? null
           : (timerCountdown ?? this.timerCountdown),
-      shutterSoundEnabled: shutterSoundEnabled ?? this.shutterSoundEnabled,
     );
   }
 }
@@ -173,10 +173,6 @@ class CameraNotifier extends StateNotifier<CameraState> {
     final next = TimerMode.values[(idx + 1) % TimerMode.values.length];
     state = state.copyWith(timerMode: next);
   }
-
-  void toggleShutterSound() =>
-      state =
-          state.copyWith(shutterSoundEnabled: !state.shutterSoundEnabled);
 
   /// シャッター: タイマーあり/なし で分岐
   void triggerShutter() {

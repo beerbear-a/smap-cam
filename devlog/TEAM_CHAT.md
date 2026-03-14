@@ -404,3 +404,31 @@ iOS Engineer → シャッター音OFF の native 実装（`shutterSoundEnabled`
 透かし位置の ShareService への接続（watermarkPositionProvider → WatermarkService.apply の position 引数）は
 Jun か iOS エンジニアとの調整次第で POST-RELEASE 扱いにしても良いと思います。beerbear-a 判断お願いします。
 
+
+---
+
+**[田中 優希 (PM)] — 2026-03-14 23:20**
+
+🚨 **決定事項: シャッター音OFFを仕様から除外**
+
+beerbear-a から「シャッター音オフは日本ではできない気がする」との指摘を受けて確認。
+
+**法的根拠:**
+- 令和5年改正「性的姿態等撮影罪」（盗撮規制法）— カメラアプリの消音機能提供そのものがリスク
+- iOS日本向けモデル: AVFoundationのシャッター音はOSが強制再生（SIMフリー・JA Locale問わず）
+- Android日本向け端末: MediaActionSound.SHUTTER_CLICK は消音不可（キャリア要件）
+
+**対応:**
+- `shutterSoundEnabled` をCameraStateから完全削除 ✅
+- カメラ画面のシャッター音ボタンを削除 ✅
+- Sprint 5 実装リスト（C3）を「非採用」に変更 ✅
+
+**理由を明示した非採用表:**
+
+| C3 | シャッター音OFF | **非採用** | 日本国内法規制（盗撮規制法）+ iOS/Android OS強制 |
+
+青山さん → Info.plist の `NSMicrophoneUsageDescription` 等とは別問題です。
+シャッター音について審査対策は不要（提供しないため）。
+
+---
+
