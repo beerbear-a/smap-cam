@@ -1,13 +1,13 @@
 package com.example.zootocam
 
 import android.content.Context
-import android.graphics.ImageFormat
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import java.util.concurrent.TimeUnit
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.LifecycleOwner
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -16,8 +16,10 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
 
@@ -158,6 +160,7 @@ class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
             cameraExecutor,
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    fixExifRotation(savePath)
                     result.success(savePath)
                 }
 
@@ -175,6 +178,49 @@ class CameraPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
         else
             ImageCapture.FLASH_MODE_OFF
         result.success(null)
+    }
+
+    /**
+     * Exif 回転バグ修正:
+     * CameraX は JPEG を保存する際、ピクセルを回転せず Exif の Orientation タグだけを
+     * 設定する。Flutter の Image.file() は Exif を無視するため縦撮りが横向きになる。
+     * → Exif の向きを読んでビットマップを実際に回転し、タグを NORMAL にリセットする。
+     */
+    private fun fixExifRotation(path: String) {
+        try {
+            val exif = ExifInterface(path)
+            val orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            val degrees = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90  -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> return // 回転不要
+            }
+
+            val bitmap = BitmapFactory.decodeFile(path) ?: return
+            val matrix = Matrix().apply { postRotate(degrees) }
+            val rotated = Bitmap.createBitmap(
+                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+            )
+            bitmap.recycle()
+
+            FileOutputStream(path).use { out ->
+                rotated.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
+            rotated.recycle()
+
+            // Orientation タグを正常値にリセット
+            exif.setAttribute(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL.toString()
+            )
+            exif.saveAttributes()
+        } catch (_: Exception) {
+            // 回転修正に失敗しても元ファイルは有効なので握りつぶす
+        }
     }
 
     private fun setFocusPoint(call: MethodCall, result: MethodChannel.Result) {
