@@ -442,5 +442,160 @@ adb install build/app/outputs/flutter-apk/app-debug.apk
 
 ---
 
+## 11. TestFlight で配布する（iOS）
+
+TestFlight は Apple の公式ベータ配布サービスです。
+ビルドをApp Store Connect にアップロードすれば、テスターが **App Storeなし** でインストールできます。
+
+> **担当:** 青山 美樹（QA）が本来の担当ですが、手順を理解しておくと自力で確認できます。
+
+### 11-1. 前提条件の確認
+
+```
+□ Apple Developer Program 加入済み（年間 ¥13,800）
+□ App Store Connect でアプリが登録済み
+  → 未登録の場合は 11-2 から
+□ Xcode 15以上
+□ Bundle Identifier が確定している（例: com.beerbear.zootocam）
+```
+
+### 11-2. App Store Connect にアプリを登録する（初回のみ）
+
+1. [appstoreconnect.apple.com](https://appstoreconnect.apple.com) にログイン
+2. 「マイApp」→「＋」→「新規App」
+3. 以下を入力して「作成」：
+
+   | 項目 | 値 |
+   |------|-----|
+   | プラットフォーム | iOS |
+   | 名前 | ZootoCam |
+   | プライマリ言語 | 日本語 |
+   | Bundle ID | Xcodeで設定したものと一致させる |
+   | SKU | zootocam-mvp（任意の一意な文字列） |
+
+### 11-3. Xcode で証明書・プロビジョニングを整える
+
+```bash
+open ios/Runner.xcworkspace
+```
+
+1. 「Runner」→ 「Signing & Capabilities」
+2. 「Automatically manage signing」にチェック
+3. Team: **あなたの Apple Developer チーム**を選択
+4. Bundle Identifier を App Store Connect と **完全一致** させる
+
+### 11-4. バージョン番号を設定する
+
+`pubspec.yaml` のバージョンを確認・更新：
+
+```yaml
+version: 1.0.0+1
+#        ↑   ↑
+#        |   ビルド番号（毎回インクリメント必須）
+#        バージョン番号（表示用）
+```
+
+TestFlight は **ビルド番号（`+` 以降）** が前回より大きくないと受け付けません。
+
+```yaml
+# 例: 2回目のアップロード
+version: 1.0.0+2
+```
+
+### 11-5. アーカイブ（ビルドパッケージ作成）
+
+```bash
+# release ビルドを生成（完了まで 5〜15 分）
+flutter build ipa --release
+```
+
+成功すると：
+```
+build/ios/ipa/zootocam.ipa
+```
+が生成されます。
+
+> **エラーが出た場合:** `flutter build ios --release` を先に試してXcodeのエラーを確認してください。
+
+### 11-6. App Store Connect にアップロード
+
+**方法A: Xcode から（簡単）**
+
+```bash
+open ios/Runner.xcworkspace
+```
+
+1. Xcode 上部メニュー「Product」→「Archive」
+2. 完了したら自動で「Organizer」ウィンドウが開く
+3. 「Distribute App」→「App Store Connect」→「Upload」
+4. そのまま進めると自動でアップロードされる
+
+**方法B: xcrun altool コマンドで（CLIで完結）**
+
+```bash
+xcrun altool --upload-app \
+  -f build/ios/ipa/zootocam.ipa \
+  -t ios \
+  -u "Apple IDのメールアドレス" \
+  -p "アプリ専用パスワード"
+  # ↑ appleid.apple.com → 「サインインとセキュリティ」→「App用パスワード」で発行
+```
+
+**方法C: Transporter アプリ（Macのみ・GUIで一番簡単）**
+
+1. Mac App Store で「Transporter」をインストール
+2. 起動して Apple ID でログイン
+3. `.ipa` ファイルをドラッグ&ドロップ
+4. 「配信」ボタンを押す
+
+### 11-7. TestFlight でテスターを追加する
+
+アップロード完了後、App Store Connect で：
+
+1. 「TestFlight」タブ → ビルドが処理中（15〜30分かかる）
+2. 処理完了後「内部テスト」→「テスター」→「＋」
+3. beerbear-a のメールアドレスを追加
+4. 招待メールが届く → **TestFlight アプリ** からインストール
+
+```
+内部テスト: Apple Developer チームのメンバーまで（最大 100名）
+外部テスト: 誰でも招待可（審査が必要。MVP段階では内部でOK）
+```
+
+### 11-8. テスターのインストール手順
+
+受け取る側（beerbear-a など）の操作：
+
+1. iPhoneで招待メールを開く
+2. 「TestFlightで表示」をタップ
+3. TestFlightアプリを持っていなければApp Storeからインストール
+4. TestFlight → 「ZootoCam」→「インストール」
+
+以降はアップデートのたびに TestFlight から通知が来て、ワンタップで更新できます。
+
+### 11-9. TestFlight で起きやすい問題
+
+| 問題 | 原因 | 対処 |
+|------|------|------|
+| 処理完了まで30分以上かかる | Apple側の審査キュー | 待つ。通常15〜30分、稀に1時間 |
+| 「このビルドはもう利用できません」 | ビルド番号が重複 | `pubspec.yaml` の `+N` を上げて再ビルド |
+| メール届かない | 迷惑フォルダ | 「no_reply@email.apple.com」を確認 |
+| カメラ権限がない | Info.plist の記述漏れ | `NSCameraUsageDescription` を確認（設定済み） |
+| マップが真っ白 | Mapboxトークン未設定 | 手順2-2 を確認 |
+| 「ITMS-90683: Missing Purpose String」 | 権限の説明文漏れ | 青山 美樹に確認（審査ブロッカー） |
+
+### 11-10. ビルド番号管理のTips
+
+アップロードのたびにビルド番号を手動で上げるのは面倒なので、CIで自動化することもできますが、MVP段階は手動で十分です。
+
+```bash
+# 現在のビルド番号を確認
+grep "^version:" pubspec.yaml
+
+# 例: version: 1.0.0+3 → 次は +4 にして再ビルド
+```
+
+---
+
 **作成: 田中 優希 (PM) + beerbear-a**
 **最終更新: 2026-03-14**
