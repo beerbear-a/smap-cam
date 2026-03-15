@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/ai_memory_assist.dart';
 import '../../core/config/experience_rules.dart';
 import '../../core/database/database_helper.dart';
+import '../../core/models/ai_lifelog_draft.dart';
 import '../../core/models/film_session.dart';
 import '../../core/navigation/main_tab_provider.dart';
 import '../../core/models/photo.dart';
@@ -19,27 +21,67 @@ import '../share/contact_sheet_service.dart';
 import 'photo_viewer_screen.dart';
 
 class AlbumPhotoEntry {
-  final Photo photo;
+  final Photo? photo;
   final FilmSession session;
   final List<Photo> sessionPhotos;
+  final String imagePath;
+  final DateTime sortTimestamp;
+  final bool isIndexSheet;
 
-  const AlbumPhotoEntry({
+  const AlbumPhotoEntry._({
     required this.photo,
     required this.session,
     required this.sessionPhotos,
+    required this.imagePath,
+    required this.sortTimestamp,
+    required this.isIndexSheet,
   });
+
+  factory AlbumPhotoEntry.photo({
+    required Photo photo,
+    required FilmSession session,
+    required List<Photo> sessionPhotos,
+  }) {
+    return AlbumPhotoEntry._(
+      photo: photo,
+      session: session,
+      sessionPhotos: sessionPhotos,
+      imagePath: photo.imagePath,
+      sortTimestamp: photo.timestamp,
+      isIndexSheet: false,
+    );
+  }
+
+  factory AlbumPhotoEntry.indexSheet({
+    required FilmSession session,
+    required List<Photo> sessionPhotos,
+    required String imagePath,
+    required DateTime sortTimestamp,
+  }) {
+    return AlbumPhotoEntry._(
+      photo: null,
+      session: session,
+      sessionPhotos: sessionPhotos,
+      imagePath: imagePath,
+      sortTimestamp: sortTimestamp,
+      isIndexSheet: true,
+    );
+  }
 }
 
 class AlbumSessionEntry {
   final FilmSession session;
   final List<Photo> photos;
+  final AiLifelogDraft? latestAiDraft;
 
   const AlbumSessionEntry({
     required this.session,
     required this.photos,
+    this.latestAiDraft,
   });
 
   Photo? get coverPhoto => photos.isEmpty ? null : photos.last;
+  bool get hasAiDraft => latestAiDraft != null;
 }
 
 Widget _albumPhotoWidget({
@@ -61,6 +103,39 @@ Widget _albumPhotoWidget({
   }
 
   return Image.file(file, fit: fit);
+}
+
+Widget _albumEntryWidget({
+  required AlbumPhotoEntry entry,
+  BoxFit fit = BoxFit.cover,
+}) {
+  if (entry.isIndexSheet) {
+    final file = File(entry.imagePath);
+    if (!file.existsSync()) return MockPhotoView(fit: fit);
+    return Image.file(file, fit: fit);
+  }
+
+  return _albumPhotoWidget(
+    session: entry.session,
+    photo: entry.photo!,
+    fit: fit,
+  );
+}
+
+void _openAlbumEntryViewer(BuildContext context, AlbumPhotoEntry entry) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => PhotoViewerScreen(
+        session: entry.session,
+        photos: entry.sessionPhotos,
+        initialIndex: entry.isIndexSheet
+            ? -1
+            : entry.sessionPhotos.indexWhere(
+                (photo) => photo.photoId == entry.photo!.photoId,
+              ),
+      ),
+    ),
+  );
 }
 
 class AlbumOverview {
@@ -90,6 +165,17 @@ class AlbumOverview {
 
   AlbumSessionEntry? get currentRoll =>
       shootingFilmSessions.isEmpty ? null : shootingFilmSessions.first;
+
+  List<AlbumSessionEntry> get memorySessions {
+    final sessions = developedSessions
+        .where((entry) => entry.latestAiDraft != null)
+        .toList();
+    sessions.sort(
+      (a, b) =>
+          b.latestAiDraft!.updatedAt.compareTo(a.latestAiDraft!.updatedAt),
+    );
+    return sessions;
+  }
 }
 
 final albumOverviewProvider = FutureProvider<AlbumOverview>((ref) async {
@@ -104,10 +190,18 @@ final albumOverviewProvider = FutureProvider<AlbumOverview>((ref) async {
 
   for (final session in sessions) {
     final photos = await DatabaseHelper.getPhotosForSession(session.sessionId);
-    final entry = AlbumSessionEntry(session: session, photos: photos);
+    final latestAiDraft =
+        await DatabaseHelper.getLatestAiLifelogDraftForSession(
+      session.sessionId,
+    );
+    final entry = AlbumSessionEntry(
+      session: session,
+      photos: photos,
+      latestAiDraft: latestAiDraft,
+    );
 
     for (final photo in photos) {
-      final albumEntry = AlbumPhotoEntry(
+      final albumEntry = AlbumPhotoEntry.photo(
         photo: photo,
         session: session,
         sessionPhotos: photos,
@@ -117,6 +211,19 @@ final albumOverviewProvider = FutureProvider<AlbumOverview>((ref) async {
       } else {
         recentFilmPhotos.add(albumEntry);
       }
+    }
+
+    if (session.isFilmMode && session.indexSheetPath?.isNotEmpty == true) {
+      recentFilmPhotos.add(
+        AlbumPhotoEntry.indexSheet(
+          session: session,
+          sessionPhotos: photos,
+          imagePath: session.indexSheetPath!,
+          sortTimestamp: photos.isNotEmpty
+              ? photos.last.timestamp.add(const Duration(seconds: 1))
+              : session.date,
+        ),
+      );
     }
 
     if (session.isInstantMode) {
@@ -142,10 +249,10 @@ final albumOverviewProvider = FutureProvider<AlbumOverview>((ref) async {
   }
 
   recentFilmPhotos.sort(
-    (a, b) => b.photo.timestamp.compareTo(a.photo.timestamp),
+    (a, b) => b.sortTimestamp.compareTo(a.sortTimestamp),
   );
   instantPhotos.sort(
-    (a, b) => b.photo.timestamp.compareTo(a.photo.timestamp),
+    (a, b) => b.sortTimestamp.compareTo(a.sortTimestamp),
   );
 
   return AlbumOverview(
@@ -251,6 +358,12 @@ class _AlbumBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final featuredPhotos = [
+      ...overview.recentFilmPhotos.take(8),
+      ...overview.instantPhotos.take(8),
+    ]..sort((a, b) => b.sortTimestamp.compareTo(a.sortTimestamp));
+    final memorySessions = overview.memorySessions.take(6).toList();
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
       children: [
@@ -279,15 +392,36 @@ class _AlbumBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'フィルムはロールで、インスタントは写真アプリみたいに見返せる。',
+          '最近の写真から、その日のロールやインスタントへ入れます。',
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.56),
             fontSize: 13,
             height: 1.6,
           ),
         ),
-        const SizedBox(height: 18),
-        _AlbumSummaryStrip(overview: overview),
+        if (featuredPhotos.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          _FeaturedAlbumMoments(entries: featuredPhotos.take(5).toList()),
+        ],
+        if (memorySessions.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          const _SectionHeader(
+            title: '思い出ノート',
+            subtitle: 'ロールごとの空気やメモを、あとから読み返しやすく整理します。',
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 172,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: memorySessions.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) => _MemoryJournalCard(
+                entry: memorySessions[index],
+              ),
+            ),
+          ),
+        ],
         // 1. 撮影中ロール（最優先）
         if (overview.currentRoll != null) ...[
           const SizedBox(height: 24),
@@ -358,63 +492,309 @@ class _AlbumBody extends StatelessWidget {
   }
 }
 
-class _AlbumSummaryStrip extends StatelessWidget {
-  final AlbumOverview overview;
+class _FeaturedAlbumMoments extends StatelessWidget {
+  final List<AlbumPhotoEntry> entries;
 
-  const _AlbumSummaryStrip({required this.overview});
+  const _FeaturedAlbumMoments({required this.entries});
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      ('撮影中', overview.shootingFilmSessions.length.toString()),
-      ('INSTANT', overview.instantPhotos.length.toString()),
-      ('現像待ち', overview.developingSessions.length.toString()),
-      ('アーカイブ', overview.developedSessions.length.toString()),
-    ];
+    if (entries.isEmpty) return const SizedBox.shrink();
 
-    return Row(
-      children: items
-          .map(
-            (item) => Expanded(
-              child: Container(
-                margin: EdgeInsets.only(right: item == items.last ? 0 : 8),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
+    final hero = entries.first;
+    final sideEntries = entries.skip(1).take(2).toList();
+    final footerEntries = entries.skip(3).take(2).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(
+          title: '最近の写真',
+          subtitle: 'タップすると、そのロールやインスタントの流れをそのまま見返せます。',
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 280,
+          child: Row(
+            children: [
+              Expanded(
+                flex: 7,
+                child: _FeaturedPhotoTile(
+                  entry: hero,
+                  showMeta: true,
                 ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.08),
+              ),
+              if (sideEntries.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 4,
+                  child: Column(
+                    children: [
+                      for (int i = 0; i < sideEntries.length; i++) ...[
+                        Expanded(
+                          child: _FeaturedPhotoTile(
+                            entry: sideEntries[i],
+                            compact: true,
+                          ),
+                        ),
+                        if (i != sideEntries.length - 1)
+                          const SizedBox(height: 10),
+                      ],
+                    ],
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.$1,
-                      style: const TextStyle(
-                        color: Colors.white38,
-                        fontSize: 10,
-                        letterSpacing: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      item.$2,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w300,
-                      ),
-                    ),
+              ],
+            ],
+          ),
+        ),
+        if (footerEntries.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 92,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: footerEntries.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) => AspectRatio(
+                aspectRatio: 1.4,
+                child: _FeaturedPhotoTile(
+                  entry: footerEntries[index],
+                  compact: true,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _FeaturedPhotoTile extends StatelessWidget {
+  final AlbumPhotoEntry entry;
+  final bool showMeta;
+  final bool compact;
+
+  const _FeaturedPhotoTile({
+    required this.entry,
+    this.showMeta = false,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = entry.isIndexSheet
+        ? 'INDEX SHEET'
+        : entry.photo?.subject?.trim().isNotEmpty == true
+            ? entry.photo!.subject!
+            : entry.session.title;
+
+    return GestureDetector(
+      onTap: () => _openAlbumEntryViewer(context, entry),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(compact ? 14 : 20),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _albumEntryWidget(entry: entry),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.05),
+                    Colors.black.withValues(alpha: 0.08),
+                    Colors.black.withValues(alpha: 0.56),
                   ],
                 ),
               ),
             ),
-          )
-          .toList(),
+            if (entry.isIndexSheet)
+              Positioned(
+                left: 10,
+                top: 10,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.42),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.14),
+                    ),
+                  ),
+                  child: const Text(
+                    'INDEX',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: compact ? 10 : 14,
+              right: compact ? 10 : 14,
+              bottom: compact ? 10 : 14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: compact ? 12 : 18,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  if (showMeta || !compact) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      entry.session.locationName ?? entry.session.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: compact ? 10 : 12,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemoryJournalCard extends StatelessWidget {
+  final AlbumSessionEntry entry;
+
+  const _MemoryJournalCard({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final draft = entry.latestAiDraft;
+    if (draft == null) return const SizedBox.shrink();
+
+    final summary = _memorySummaryText(draft);
+
+    return SizedBox(
+      width: 260,
+      child: GestureDetector(
+        onTap: () => _openJournalScreen(
+          context,
+          entry.session,
+          entry.photos,
+          startWithAiAssist: false,
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF181716),
+                Color(0xFF101010),
+              ],
+            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'MEMORY',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        letterSpacing: 1.6,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _formatShortDate(draft.updatedAt),
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                draft.title?.trim().isNotEmpty == true
+                    ? draft.title!
+                    : entry.session.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w300,
+                  height: 1.25,
+                ),
+              ),
+              if (draft.subtitle?.trim().isNotEmpty == true) ...[
+                const SizedBox(height: 6),
+                Text(
+                  draft.subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.52),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Expanded(
+                child: Text(
+                  summary,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontSize: 12,
+                    height: 1.6,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '${entry.photos.length} 枚 · ${entry.session.locationName ?? entry.session.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white38,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1047,19 +1427,7 @@ class _RecentPhotoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => PhotoViewerScreen(
-              session: entry.session,
-              photos: entry.sessionPhotos,
-              initialIndex: entry.sessionPhotos.indexWhere(
-                (photo) => photo.photoId == entry.photo.photoId,
-              ),
-            ),
-          ),
-        );
-      },
+      onTap: () => _openAlbumEntryViewer(context, entry),
       child: SizedBox(
         width: 104,
         child: Column(
@@ -1068,17 +1436,44 @@ class _RecentPhotoCard extends StatelessWidget {
             Expanded(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: _albumPhotoWidget(
-                  session: entry.session,
-                  photo: entry.photo,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _albumEntryWidget(entry: entry),
+                    if (entry.isIndexSheet)
+                      Positioned(
+                        left: 6,
+                        top: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.46),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            'INDEX',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 9,
+                              letterSpacing: 1.1,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              entry.photo.subject?.trim().isNotEmpty == true
-                  ? entry.photo.subject!
-                  : entry.session.title,
+              entry.isIndexSheet
+                  ? 'INDEX SHEET'
+                  : entry.photo?.subject?.trim().isNotEmpty == true
+                      ? entry.photo!.subject!
+                      : entry.session.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -1088,7 +1483,7 @@ class _RecentPhotoCard extends StatelessWidget {
             ),
             const SizedBox(height: 2),
             Text(
-              _formatShortDate(entry.photo.timestamp),
+              _formatShortDate(entry.sortTimestamp),
               style: const TextStyle(
                 color: Colors.white38,
                 fontSize: 11,
@@ -1109,28 +1504,13 @@ class _InstantPhotoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => PhotoViewerScreen(
-              session: entry.session,
-              photos: entry.sessionPhotos,
-              initialIndex: entry.sessionPhotos.indexWhere(
-                (photo) => photo.photoId == entry.photo.photoId,
-              ),
-            ),
-          ),
-        );
-      },
+      onTap: () => _openAlbumEntryViewer(context, entry),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _albumPhotoWidget(
-              session: entry.session,
-              photo: entry.photo,
-            ),
+            _albumEntryWidget(entry: entry),
             Positioned(
               left: 6,
               right: 6,
@@ -1142,7 +1522,9 @@ class _InstantPhotoTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  _formatShortDate(entry.photo.timestamp),
+                  entry.isIndexSheet
+                      ? 'INDEX SHEET'
+                      : _formatShortDate(entry.sortTimestamp),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1241,6 +1623,8 @@ class _ArchiveSessionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final draft = entry.latestAiDraft;
+
     return GestureDetector(
       onTap: () {
         Navigator.of(context).push(
@@ -1323,6 +1707,44 @@ class _ArchiveSessionCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (draft != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.06),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '思い出ノート',
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 10,
+                        letterSpacing: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _memorySummaryText(draft),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 6),
             Row(
               children: [
@@ -1350,6 +1772,27 @@ class _ArchiveSessionCard extends StatelessWidget {
                       'INDEX',
                       style: TextStyle(
                         color: Colors.white70,
+                        fontSize: 10,
+                        letterSpacing: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+                if (draft != null) ...[
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEE3CE).withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'NOTE',
+                      style: TextStyle(
+                        color: Color(0xFFF1D8AF),
                         fontSize: 10,
                         letterSpacing: 1.4,
                       ),
@@ -1402,13 +1845,19 @@ class _SessionPreviewTile extends StatelessWidget {
   }
 }
 
-class _AlbumSessionDetailScreen extends StatelessWidget {
+class _AlbumSessionDetailScreen extends ConsumerWidget {
   final AlbumSessionEntry entry;
 
   const _AlbumSessionDetailScreen({required this.entry});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final aiSettings = ref.watch(aiMemoryAssistSettingsProvider);
+    final canUseAiAssist = aiSettings.enabled &&
+        entry.session.isFilmMode &&
+        entry.session.status == FilmStatus.developed &&
+        entry.photos.isNotEmpty;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -1494,6 +1943,13 @@ class _AlbumSessionDetailScreen extends StatelessWidget {
                       photos: entry.photos,
                     ),
                   ],
+                  if (entry.latestAiDraft != null || canUseAiAssist) ...[
+                    const SizedBox(height: 18),
+                    _SessionMemoryPanel(
+                      entry: entry,
+                      canUseAiAssist: canUseAiAssist,
+                    ),
+                  ],
                   if (entry.photos.isNotEmpty) ...[
                     const SizedBox(height: 18),
                     Row(
@@ -1545,7 +2001,10 @@ class _AlbumSessionDetailScreen extends StatelessWidget {
                       width: double.infinity,
                       child: OutlinedButton(
                         onPressed: () => _openJournalScreen(
-                            context, entry.session, entry.photos),
+                          context,
+                          entry.session,
+                          entry.photos,
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white70,
                           side: const BorderSide(color: Colors.white24),
@@ -1629,6 +2088,149 @@ class _AlbumSessionDetailScreen extends StatelessWidget {
   }
 }
 
+class _SessionMemoryPanel extends StatelessWidget {
+  final AlbumSessionEntry entry;
+  final bool canUseAiAssist;
+
+  const _SessionMemoryPanel({
+    required this.entry,
+    required this.canUseAiAssist,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final draft = entry.latestAiDraft;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF121110),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'AI MEMORY',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 10,
+                    letterSpacing: 1.7,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              if (draft != null)
+                Text(
+                  _formatShortDate(draft.updatedAt),
+                  style: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 11,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            draft?.title?.trim().isNotEmpty == true
+                ? draft!.title!
+                : 'このロールの思い出を整理する',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w300,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            draft != null
+                ? _memorySummaryText(draft)
+                : '現像した写真、場所、メモをもとに note に持っていきやすい下書きを作れます。',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.68),
+              fontSize: 13,
+              height: 1.6,
+            ),
+          ),
+          if (draft?.hashtags.isNotEmpty == true) ...[
+            const SizedBox(height: 10),
+            Text(
+              draft!.hashtags.take(4).join(' '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFFF1D8AF),
+                fontSize: 11,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  onPressed: canUseAiAssist || draft != null
+                      ? () => _openJournalScreen(
+                            context,
+                            entry.session,
+                            entry.photos,
+                            startWithAiAssist: draft == null,
+                          )
+                      : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                  ),
+                  child: Text(
+                    draft == null ? 'AIで整理する' : '思い出ノートを開く',
+                    style: const TextStyle(letterSpacing: 1.2),
+                  ),
+                ),
+              ),
+              if (draft != null) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _openJournalScreen(
+                      context,
+                      entry.session,
+                      entry.photos,
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text(
+                      '編集する',
+                      style: TextStyle(letterSpacing: 1.2),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DetailChip extends StatelessWidget {
   final String label;
 
@@ -1671,6 +2273,7 @@ void _openJournalScreen(
   FilmSession session,
   List<Photo> photos, {
   int initialIndex = 0,
+  bool startWithAiAssist = false,
 }) {
   if (photos.isEmpty) return;
   Navigator.of(context).push(
@@ -1679,9 +2282,26 @@ void _openJournalScreen(
         sessionId: session.sessionId,
         photos: photos,
         initialIndex: initialIndex < 0 ? 0 : initialIndex,
+        startWithAiAssist: startWithAiAssist,
       ),
     ),
   );
+}
+
+String _memorySummaryText(AiLifelogDraft draft) {
+  final candidates = [
+    draft.intro,
+    draft.socialSummary,
+    draft.bodyPlainText,
+    draft.bodyMarkdown,
+  ];
+  for (final candidate in candidates) {
+    final trimmed = candidate?.trim();
+    if (trimmed != null && trimmed.isNotEmpty) {
+      return trimmed.replaceAll('\n', ' ');
+    }
+  }
+  return 'このロールの記録がまだありません。';
 }
 
 Future<void> _saveSessionToPhotoLibrary(

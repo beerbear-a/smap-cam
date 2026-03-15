@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import '../../../core/config/runtime_compatibility.dart';
 
 // ── Film Stock Definitions ───────────────────────────────────
 
@@ -227,7 +228,7 @@ enum LutType {
       case LutType.natural:
         return 'shaders/film_iso800.frag'; // 写ルんです QuickSnap ISO800
       case LutType.warm:
-        return 'shaders/film_warm.frag';   // Kodak Gold / 期限切れフィルム
+        return 'shaders/film_warm.frag'; // Kodak Gold / 期限切れフィルム
       case LutType.fuji:
         return 'shaders/film_fuji400.frag'; // Fujifilm Superia 400
       case LutType.mono:
@@ -433,21 +434,19 @@ class _VignettePainter extends CustomPainter {
     final rect = Offset.zero & size;
     final gradient = RadialGradient(
       center: Alignment.center,
-      radius: 1.0,
+      radius: 0.98,
       colors: [
         Colors.transparent,
-        Colors.black.withValues(alpha: strength * 0.45),
-        Colors.black.withValues(alpha: strength * 0.92),
+        Colors.black.withValues(alpha: strength * 0.10),
+        Colors.black.withValues(alpha: strength * 0.24),
+        Colors.black.withValues(alpha: strength * 0.42),
       ],
-      stops: const [0.38, 0.68, 1.0],
+      stops: const [0.42, 0.68, 0.84, 1.0],
     );
-    // 楕円化: 縦を 88% に縮小してプラスチックレンズ形状に
-    final cx = size.width / 2;
-    final cy = size.height / 2;
     canvas.save();
-    canvas.translate(cx, cy);
-    canvas.scale(1.0, 0.88);
-    canvas.translate(-cx, -cy);
+    canvas.translate(size.width / 2, size.height / 2);
+    canvas.scale(1.0, 0.92);
+    canvas.translate(-size.width / 2, -size.height / 2);
     canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
     canvas.restore();
   }
@@ -481,34 +480,84 @@ class _GrainPainter extends CustomPainter {
     final grainSigma = baseSigma * intensity;
     final paint = Paint()
       ..style = PaintingStyle.fill
-      ..strokeCap = StrokeCap.round;
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = false;
 
-    const step = 3.0;
+    _paintGrainLayer(
+      canvas,
+      size,
+      paint: paint,
+      step: 5.0,
+      frameOffset: frame,
+      densityThreshold: 0.18,
+      grainSigma: grainSigma,
+      radiusBase: 0.22,
+      radiusRange: 0.40,
+      alphaScale: 0.40,
+      monochrome: true,
+    );
+    _paintGrainLayer(
+      canvas,
+      size,
+      paint: paint,
+      step: 13.0,
+      frameOffset: frame + 17,
+      densityThreshold: 0.12,
+      grainSigma: grainSigma,
+      radiusBase: 0.55,
+      radiusRange: 1.10,
+      alphaScale: 0.12,
+      monochrome: false,
+    );
+  }
+
+  void _paintGrainLayer(
+    Canvas canvas,
+    Size size, {
+    required Paint paint,
+    required double step,
+    required int frameOffset,
+    required double densityThreshold,
+    required double grainSigma,
+    required double radiusBase,
+    required double radiusRange,
+    required double alphaScale,
+    required bool monochrome,
+  }) {
     for (double x = 0; x < size.width; x += step) {
       for (double y = 0; y < size.height; y += step) {
-        final hash = _pcgHash(x.toInt(), y.toInt(), frame);
+        final hash = _pcgHash(x.toInt(), y.toInt(), frameOffset);
         final density = (hash & 0xFF) / 255.0;
-        if (density > 0.42) continue;
+        if (density > densityThreshold) continue;
 
         final h2 = ((hash >> 8) & 0xFF) / 255.0;
         final h3 = ((hash >> 16) & 0xFF) / 255.0;
         final h4 = ((hash >> 24) & 0xFF) / 255.0;
 
-        final jitterX = (h2 - 0.5) * 2.0;
-        final jitterY = (h3 - 0.5) * 2.0;
-        final alpha = ((h2 + h3) * 0.5) * grainSigma * 0.55;
-        final radius = 0.35 + h4 * 0.55;
-        final isLight = h4 > 0.55;
+        final jitterX = (h2 - 0.5) * step * 0.9;
+        final jitterY = (h3 - 0.5) * step * 0.9;
+        final alpha = ((h2 + h3) * 0.5) * grainSigma * alphaScale;
+        final radius = radiusBase + h4 * radiusRange;
 
-        paint.color = isLight
-            ? Colors.white.withValues(alpha: alpha.clamp(0.0, 0.06))
-            : Colors.black.withValues(alpha: (alpha * 0.75).clamp(0.0, 0.05));
+        if (monochrome) {
+          final isLight = h4 > 0.56;
+          paint.color = isLight
+              ? Colors.white.withValues(alpha: alpha.clamp(0.0, 0.06))
+              : Colors.black.withValues(
+                  alpha: (alpha * 0.82).clamp(0.0, 0.055),
+                );
+        } else {
+          final warm = h2 > 0.55;
+          paint.color = warm
+              ? const Color(0xFFD8B07A).withValues(
+                  alpha: alpha.clamp(0.0, 0.035),
+                )
+              : const Color(0xFF7A8FB8).withValues(
+                  alpha: (alpha * 0.9).clamp(0.0, 0.03),
+                );
+        }
 
-        canvas.drawCircle(
-          Offset(x + jitterX, y + jitterY),
-          radius,
-          paint,
-        );
+        canvas.drawCircle(Offset(x + jitterX, y + jitterY), radius, paint);
       }
     }
   }
@@ -706,6 +755,9 @@ Future<ui.FragmentProgram> _loadShaderProgram(String asset) {
   _programFutures[asset] ??= ui.FragmentProgram.fromAsset(asset).then((p) {
     _programCache[asset] = p;
     return p;
+  }).catchError((Object error) {
+    _programFutures.remove(asset);
+    throw error;
   });
   return _programFutures[asset]!;
 }
@@ -793,6 +845,8 @@ class _FilmShaderImageState extends State<FilmShaderImage>
   late AnimationController _grainController;
   bool _loading = true;
 
+  bool get _useShaderPipeline => !RuntimeCompatibility.disableFragmentShaders;
+
   @override
   void initState() {
     super.initState();
@@ -801,12 +855,27 @@ class _FilmShaderImageState extends State<FilmShaderImage>
       duration: const Duration(milliseconds: 83),
     );
     if (widget.animateGrain) _grainController.repeat();
-    _loadResources();
+    if (_useShaderPipeline) {
+      _loadResources();
+    } else {
+      _loading = false;
+    }
   }
 
   @override
   void didUpdateWidget(FilmShaderImage old) {
     super.didUpdateWidget(old);
+    if (!_useShaderPipeline) {
+      if (widget.animateGrain && !old.animateGrain) {
+        _grainController.repeat();
+      } else if (!widget.animateGrain && old.animateGrain) {
+        _grainController.stop();
+      }
+      if (_loading) {
+        setState(() => _loading = false);
+      }
+      return;
+    }
     if (old.lutType != widget.lutType) {
       // LUT が変わった → 別シェーダーファイルをロード
       _program = null;
@@ -828,10 +897,18 @@ class _FilmShaderImageState extends State<FilmShaderImage>
   }
 
   Future<void> _loadResources() async {
-    final program = await _loadShaderProgram(widget.lutType.shaderAsset);
-    if (!mounted) return;
-    setState(() => _program = program);
-    await _loadImage();
+    try {
+      final program = await _loadShaderProgram(widget.lutType.shaderAsset);
+      if (!mounted) return;
+      setState(() => _program = program);
+      await _loadImage();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _program = null;
+        _loading = false;
+      });
+    }
   }
 
   Future<void> _loadImage() async {
@@ -863,6 +940,16 @@ class _FilmShaderImageState extends State<FilmShaderImage>
 
   @override
   Widget build(BuildContext context) {
+    if (!_useShaderPipeline) {
+      final file = File(widget.imagePath);
+      return ColorFiltered(
+        colorFilter: ColorFilter.matrix(widget.lutType.colorMatrix),
+        child: file.existsSync()
+            ? Image.file(file, fit: widget.fit)
+            : const _MockPlaceholder(),
+      );
+    }
+
     if (_loading) {
       return Container(
         color: const Color(0xFF0A0A0A),

@@ -42,8 +42,12 @@ class FilmSession {
   static const int maxPhotos = 27;
 
   int get remainingShots => maxPhotos - photoCount;
-  int get instantBatteryRemaining =>
-      (instantBatteryCapacity - photoCount).clamp(0, instantBatteryCapacity);
+  int get instantBatteryRemaining => enforceAnalogExperienceRules
+      ? (instantBatteryCapacity - photoCount).clamp(
+          0,
+          instantBatteryCapacity,
+        )
+      : instantBatteryCapacity;
   double get instantBatteryLevel =>
       instantBatteryRemaining / instantBatteryCapacity;
   bool get isFilmMode => captureMode == CaptureMode.film;
@@ -51,12 +55,15 @@ class FilmSession {
   bool get isFull => isFilmMode && photoCount >= maxPhotos;
   bool get isDeveloped => status == FilmStatus.developed;
   bool get isShelved => status == FilmStatus.shelved;
-  bool get canTakeMore => isInstantMode ? instantBatteryRemaining > 0 : !isFull;
+  bool get canTakeMore => isInstantMode
+      ? !enforceAnalogExperienceRules || instantBatteryRemaining > 0
+      : !isFull;
   bool get canDevelop => isInstantMode || isFull;
   bool get isFilmModeLocked => isFilmMode && !isFull;
   bool get isFilmLookLocked => isFilmMode && photoCount > 0 && !isFull;
   bool get isAwaitingDevelopment => status == FilmStatus.developing;
   bool get isDevelopReady {
+    if (!enforceAnalogExperienceRules) return true;
     if (!isAwaitingDevelopment) return true;
     final readyAt = developReadyAt;
     if (readyAt == null) return true;
@@ -64,6 +71,7 @@ class FilmSession {
   }
 
   Duration? get remainingDevelopWait {
+    if (!enforceAnalogExperienceRules) return Duration.zero;
     final readyAt = developReadyAt;
     if (readyAt == null) return null;
     final remaining = readyAt.difference(DateTime.now());
@@ -75,6 +83,7 @@ class FilmSession {
       );
 
   bool canRestoreNow({DateTime? now}) {
+    if (!enforceAnalogExperienceRules) return true;
     final next = nextRestoreAvailableAt;
     if (next == null) return true;
     final current = now ?? DateTime.now();

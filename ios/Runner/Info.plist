@@ -34,6 +34,10 @@
 	<string>撮影場所を記録するために位置情報を使用します</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>写真を保存するためにフォトライブラリへのアクセスが必要です</string>
+	<key>SMAPDisableMapboxPlugin</key>
+	<false/>
+	<key>SMAPForceEnableMapboxPlugin</key>
+	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

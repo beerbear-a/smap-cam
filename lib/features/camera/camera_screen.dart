@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/experience_rules.dart';
-import '../../core/config/pro_access.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/mock/mock_photo_library.dart';
 import '../../core/models/film_session.dart';
@@ -42,6 +41,7 @@ class CameraScreen extends ConsumerStatefulWidget {
 class _CameraScreenState extends ConsumerState<CameraScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   late final CameraNotifier _cameraNotifier;
+  final GlobalKey _previewAreaKey = GlobalKey();
   late AnimationController _flashController;
   late Animation<double> _flashOpacity;
 
@@ -117,9 +117,15 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   void _onTapUp(TapUpDetails details) {
     final cs = ref.read(cameraProvider);
     if (!cs.isCameraReady) return;
-    final size = context.size;
+    final size = _previewAreaKey.currentContext?.size;
     if (size == null) return;
     final tapPos = details.localPosition;
+    final cropRect = _resolvePreviewCropRect(
+      size,
+      cs.aspectRatio,
+      MediaQuery.orientationOf(context),
+    );
+    if (!cropRect.contains(tapPos)) return;
     CameraService.setFocusPoint(
       (tapPos.dx / size.width).clamp(0.0, 1.0),
       (tapPos.dy / size.height).clamp(0.0, 1.0),
@@ -332,12 +338,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                     _showSwitchToFilmWarning();
                     return;
                   }
-                  if (mode == CaptureMode.instant &&
-                      !ref.read(proAccessProvider)) {
-                    Navigator.pop(dialogContext);
-                    _showInstantProSheet();
-                    return;
-                  }
                   await ref.read(cameraProvider.notifier).setCaptureMode(mode);
                 },
                 onOpenLut: () {
@@ -350,6 +350,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                   Navigator.of(context).push(
                     DarkFadeRoute(page: const CheckInScreen()),
                   );
+                },
+                onStartInstant: () async {
+                  Navigator.pop(dialogContext);
+                  await ref.read(cameraProvider.notifier).startInstantSession();
                 },
                 onOpenAlbum: () {
                   Navigator.pop(dialogContext);
@@ -371,79 +375,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     );
   }
 
-  void _showInstantProSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF111111),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'インスタントは Pro 機能です',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w300,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'インスタントモードは制限なく撮影できる Pro 専用機能です。\n¥370 の買い切りで全 LUT とインスタントが解放されます。',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.66),
-                  fontSize: 13,
-                  height: 1.6,
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    // TODO: launch StoreKit purchase flow
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.amber,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text(
-                    'Pro を購入する — ¥370',
-                    style: TextStyle(letterSpacing: 1.1),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text(
-                    'キャンセル',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showSwitchToInstantWarning() {
-    if (!ref.read(proAccessProvider)) {
-      _showInstantProSheet();
-      return;
-    }
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -563,10 +495,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                   onPressed: () async {
                     Navigator.pop(sheetContext);
                     if (continueWithInstant) {
-                      if (!ref.read(proAccessProvider)) {
-                        _showInstantProSheet();
-                        return;
-                      }
                       await ref
                           .read(filmSessionProvider.notifier)
                           .createSession(
@@ -686,7 +614,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      _buildPreview(cs),
+                      _AspectRatioPreviewViewport(
+                        key: _previewAreaKey,
+                        aspectRatio: cs.aspectRatio,
+                        orientation: MediaQuery.orientationOf(context),
+                        child: _buildPreview(cs),
+                      ),
                       IgnorePointer(
                         child: FadeTransition(
                           opacity: _flashOpacity,
@@ -709,8 +642,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                                 cs.activeSession != null)
                               GestureDetector(
                                 behavior: HitTestBehavior.opaque,
-                                onTap: () =>
-                                    _showRollStatusDialog(context, cs),
+                                onTap: () => _showRollStatusDialog(context, cs),
                                 child: _SessionIndicator(
                                   session: cs.activeSession!,
                                   isCapturing: cs.isCapturing,
@@ -801,7 +733,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           ),
                         )
                       else if (cs.activeSession == null)
-                        _NoFilmLoadedHint(onStartTap: openCheckIn),
+                        _NoFilmLoadedHint(
+                          onStartTap: openCheckIn,
+                          onInstantTap: () async {
+                            await ref
+                                .read(cameraProvider.notifier)
+                                .startInstantSession();
+                          },
+                        ),
                       // タイマーカウントダウン
                       if (cs.timerCountdown != null)
                         _TimerCountdownOverlay(
@@ -859,11 +798,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                     children: [
                       ShutterButton(
                         isCapturing: cs.isCapturing,
-                        onPressed: cs.isCameraReady &&
-                                !cs.isCapturing &&
-                                cs.timerCountdown == null
-                            ? _onShutter
-                            : null,
+                        onPressed: cs.canShoot ? _onShutter : null,
                       ),
                     ],
                   ),
@@ -1035,8 +970,12 @@ class _SessionIndicator extends StatelessWidget {
 
 class _NoFilmLoadedHint extends StatelessWidget {
   final VoidCallback onStartTap;
+  final Future<void> Function() onInstantTap;
 
-  const _NoFilmLoadedHint({required this.onStartTap});
+  const _NoFilmLoadedHint({
+    required this.onStartTap,
+    required this.onInstantTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1084,7 +1023,7 @@ class _NoFilmLoadedHint extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '27枚のフィルム一本、または無制限のインスタントから選べます。',
+                          '今日フィルムを作れない日でも、インスタントならすぐ始められます。',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.58),
                             fontSize: 11,
@@ -1094,25 +1033,54 @@ class _NoFilmLoadedHint extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: onStartTap,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton(
+                        onPressed: onStartTap,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          minimumSize: Size.zero,
+                        ),
+                        child: const Text(
+                          'ロールをつくる',
+                          style: TextStyle(
+                            fontSize: 12,
+                            letterSpacing: 0.8,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                      minimumSize: Size.zero,
-                    ),
-                    child: const Text(
-                      'ロールをつくる',
-                      style: TextStyle(
-                        fontSize: 12,
-                        letterSpacing: 0.8,
-                        fontWeight: FontWeight.w600,
+                      const SizedBox(height: 6),
+                      OutlinedButton(
+                        onPressed: onInstantTap,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF9FE2DC),
+                          side: BorderSide(
+                            color:
+                                const Color(0xFF77C8C1).withValues(alpha: 0.4),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          minimumSize: Size.zero,
+                        ),
+                        child: const Text(
+                          'インスタント',
+                          style: TextStyle(
+                            fontSize: 11,
+                            letterSpacing: 0.6,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -1226,6 +1194,7 @@ class _RollStatusCard extends StatelessWidget {
   final Future<void> Function(CaptureMode) onSetMode;
   final VoidCallback onOpenLut;
   final VoidCallback onOpenCheckIn;
+  final Future<void> Function() onStartInstant;
   final VoidCallback onOpenAlbum;
   final VoidCallback? onCheckOut;
 
@@ -1237,6 +1206,7 @@ class _RollStatusCard extends StatelessWidget {
     required this.onSetMode,
     required this.onOpenLut,
     required this.onOpenCheckIn,
+    required this.onStartInstant,
     required this.onOpenAlbum,
     required this.onCheckOut,
   });
@@ -1290,7 +1260,7 @@ class _RollStatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'どこかへ一本だけ持っていく感覚でフィルムを始められます。まずは今日のロールを作ります。',
+              'フィルムを始めるか、そのままインスタントで撮るかをここから選べます。',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.58),
                 fontSize: 12,
@@ -1335,19 +1305,37 @@ class _RollStatusCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: onOpenAlbum,
+                    onPressed: onStartInstant,
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: const BorderSide(color: Colors.white24),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
+                      foregroundColor: Colors.white,
+                      side: BorderSide(
+                        color: const Color(0xFF77C8C1).withValues(alpha: 0.5),
                       ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    child: const Text('アルバムを見る'),
+                    child: const Text(
+                      'インスタントを始める',
+                      style: TextStyle(letterSpacing: 1.1),
+                    ),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: onOpenAlbum,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: const BorderSide(color: Colors.white24),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                ),
+                child: const Text('アルバムを見る'),
+              ),
             ),
           ],
         ),
@@ -1793,32 +1781,95 @@ class _CaptureModeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isFilm = current == CaptureMode.film;
+    final statusLabel = isFilm ? '現在はフィルム' : '現在はインスタント';
+    final statusBody = isFilm
+        ? '27枚を撮り切ってから現像する流れです。インスタントを押すと、いまのフィルムをしまって切り替えます。'
+        : '撮るとすぐアルバムに入ります。フィルムを押すと、新しいロール作成へ進みます。';
+
     return Container(
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
       decoration: BoxDecoration(
         color: const Color(0xFF050505),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: Colors.white.withValues(alpha: 0.08),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _CaptureModeButton(
-              label: 'フィルム',
-              subtitle: '時間をかけて残す',
-              selected: current == CaptureMode.film,
-              onTap: () => onChanged(CaptureMode.film),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _CaptureModeButton(
+                  icon: Icons.camera_roll_outlined,
+                  label: 'フィルム',
+                  subtitle: '27枚で1本',
+                  detail: current == CaptureMode.film ? 'いま撮影中' : '新しいロールを作る',
+                  accentColor: const Color(0xFFD8B26B),
+                  selected: current == CaptureMode.film,
+                  onTap: () => onChanged(CaptureMode.film),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _CaptureModeButton(
+                  icon: Icons.bolt_rounded,
+                  label: 'インスタント',
+                  subtitle: 'すぐ残る',
+                  detail: current == CaptureMode.instant ? 'いま撮影中' : 'すぐ撮影へ切替',
+                  accentColor: const Color(0xFF77C8C1),
+                  selected: current == CaptureMode.instant,
+                  onTap: () => onChanged(CaptureMode.instant),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: _CaptureModeButton(
-              label: 'インスタント',
-              subtitle: current == CaptureMode.film ? 'すぐ使う / 切替' : 'すぐ使える',
-              selected: current == CaptureMode.instant,
-              onTap: () => onChanged(CaptureMode.instant),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isFilm
+                        ? const Color(0xFFD8B26B)
+                        : const Color(0xFF77C8C1),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        statusLabel,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        statusBody,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.46),
+                          fontSize: 10,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1828,14 +1879,20 @@ class _CaptureModeToggle extends StatelessWidget {
 }
 
 class _CaptureModeButton extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String subtitle;
+  final String detail;
+  final Color accentColor;
   final bool selected;
   final VoidCallback onTap;
 
   const _CaptureModeButton({
+    required this.icon,
     required this.label,
     required this.subtitle,
+    required this.detail,
+    required this.accentColor,
     required this.selected,
     required this.onTap,
   });
@@ -1846,16 +1903,20 @@ class _CaptureModeButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFF151515) : const Color(0xFF050505),
-            borderRadius: BorderRadius.circular(12),
+            color: selected
+                ? accentColor.withValues(alpha: 0.16)
+                : const Color(0xFF050505),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: selected ? Colors.white70 : Colors.white10,
+              color: selected
+                  ? accentColor.withValues(alpha: 0.78)
+                  : Colors.white10,
               width: selected ? 1.1 : 0.8,
             ),
           ),
@@ -1863,20 +1924,62 @@ class _CaptureModeButton extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 15,
+                    color: selected ? accentColor : Colors.white38,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: selected ? Colors.white : Colors.white60,
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  if (selected)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '選択中',
+                        style: TextStyle(
+                          color: accentColor,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
               Text(
-                label,
+                subtitle,
                 style: TextStyle(
-                  color: selected ? Colors.white : Colors.white60,
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  color: selected ? Colors.white70 : Colors.white54,
+                  fontSize: 11,
+                  height: 1.25,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
-                subtitle,
+                detail,
                 style: TextStyle(
-                  color: selected ? Colors.white70 : Colors.white38,
-                  fontSize: 10,
+                  color: selected ? Colors.white60 : Colors.white38,
+                  fontSize: 9,
                   height: 1.3,
                 ),
               ),
@@ -1928,57 +2031,105 @@ class _AspectRatioCropOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     if (aspectRatio == AspectRatioMode.r4_3) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, constraints) {
-      final w = constraints.maxWidth;
-      final h = constraints.maxHeight;
-      final isPortrait = orientation == Orientation.portrait;
-      final targetAR = switch (aspectRatio) {
-        AspectRatioMode.r4_3 => isPortrait ? 3 / 4 : 4 / 3,
-        AspectRatioMode.r1_1 => 1.0,
-        AspectRatioMode.r16_9 => isPortrait ? 9 / 16 : 16 / 9,
-      };
-      final screenAR = w / h;
-      double top = 0, bottom = 0, left = 0, right = 0;
-      if (targetAR > screenAR) {
-        final crop = (h - w / targetAR) / 2;
-        top = crop;
-        bottom = crop;
-      } else {
-        final crop = (w - h * targetAR) / 2;
-        left = crop;
-        right = crop;
-      }
-      const shade = Color(0xCC000000);
-      return Stack(children: [
-        if (top > 0)
-          Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: top,
-              child: const ColoredBox(color: shade)),
-        if (bottom > 0)
-          Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: bottom,
-              child: const ColoredBox(color: shade)),
-        if (left > 0)
-          Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: left,
-              child: const ColoredBox(color: shade)),
-        if (right > 0)
-          Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: right,
-              child: const ColoredBox(color: shade)),
-      ]);
+      final cropRect = _resolvePreviewCropRect(
+        Size(constraints.maxWidth, constraints.maxHeight),
+        aspectRatio,
+        orientation,
+      );
+      return IgnorePointer(
+        child: CustomPaint(
+          painter: _CropMaskPainter(cropRect: cropRect),
+          size: Size(constraints.maxWidth, constraints.maxHeight),
+        ),
+      );
     });
+  }
+}
+
+class _AspectRatioPreviewViewport extends StatelessWidget {
+  final AspectRatioMode aspectRatio;
+  final Orientation orientation;
+  final Widget child;
+
+  const _AspectRatioPreviewViewport({
+    super.key,
+    required this.aspectRatio,
+    required this.orientation,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final cropRect = _resolvePreviewCropRect(
+          size,
+          aspectRatio,
+          orientation,
+        );
+        if (cropRect == Offset.zero & size) {
+          return child;
+        }
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: Colors.black),
+            ClipPath(
+              clipper: _PreviewCropClipper(cropRect),
+              child: child,
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PreviewCropClipper extends CustomClipper<Path> {
+  final Rect cropRect;
+
+  const _PreviewCropClipper(this.cropRect);
+
+  @override
+  Path getClip(Size size) => Path()
+    ..addRRect(RRect.fromRectAndRadius(cropRect, const Radius.circular(14)));
+
+  @override
+  bool shouldReclip(_PreviewCropClipper oldClipper) {
+    return oldClipper.cropRect != cropRect;
+  }
+}
+
+class _CropMaskPainter extends CustomPainter {
+  final Rect cropRect;
+
+  const _CropMaskPainter({required this.cropRect});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final overlayPaint = Paint()..color = const Color(0x7A000000);
+    final clearPaint = Paint()..blendMode = BlendMode.clear;
+    final framePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.10)
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+
+    final window = RRect.fromRectAndRadius(
+      cropRect,
+      const Radius.circular(14),
+    );
+
+    canvas.saveLayer(Offset.zero & size, Paint());
+    canvas.drawRect(Offset.zero & size, overlayPaint);
+    canvas.drawRRect(window, clearPaint);
+    canvas.drawRRect(window, framePaint);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_CropMaskPainter oldDelegate) {
+    return oldDelegate.cropRect != cropRect;
   }
 }
 
@@ -1992,6 +2143,31 @@ String _aspectRatioLabel(
     AspectRatioMode.r1_1 => '1:1',
     AspectRatioMode.r16_9 => isPortrait ? '9:16' : '16:9',
   };
+}
+
+Rect _resolvePreviewCropRect(
+  Size size,
+  AspectRatioMode aspectRatio,
+  Orientation orientation,
+) {
+  final isPortrait = orientation == Orientation.portrait;
+  final targetAR = switch (aspectRatio) {
+    AspectRatioMode.r4_3 => isPortrait ? 3 / 4 : 4 / 3,
+    AspectRatioMode.r1_1 => 1.0,
+    AspectRatioMode.r16_9 => isPortrait ? 9 / 16 : 16 / 9,
+  };
+  final screenAR = size.width / size.height;
+  double top = 0, bottom = 0, left = 0, right = 0;
+  if (targetAR > screenAR) {
+    final crop = (size.height - size.width / targetAR) / 2;
+    top = crop;
+    bottom = crop;
+  } else {
+    final crop = (size.width - size.height * targetAR) / 2;
+    left = crop;
+    right = crop;
+  }
+  return Rect.fromLTRB(left, top, size.width - right, size.height - bottom);
 }
 
 // ── 焦点距離セレクター ────────────────────────────────────────
@@ -2014,51 +2190,51 @@ class _LensSelector extends StatelessWidget {
         final sel = fl == focal;
         return GestureDetector(
           onTap: () => onSelect(fl),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 11 : 10,
-                vertical: compact ? 7 : 5,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    fl.zoomLabel,
-                    style: TextStyle(
-                      color: sel ? Colors.white : Colors.white38,
-                      fontSize: sel ? 13 : 12,
-                      fontWeight: sel ? FontWeight.w500 : FontWeight.w300,
-                    ),
-                  ),
-                  if (!compact)
-                    Text(
-                      fl.label,
-                      style: TextStyle(
-                        color: sel
-                            ? Colors.white38
-                            : Colors.white.withValues(alpha: 0.18),
-                        fontSize: 8,
-                      ),
-                    ),
-                  const SizedBox(height: 3),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: sel ? 16 : 0,
-                    height: 1.5,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(
-                        alpha: sel ? 0.72 : 0.0,
-                      ),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ],
-              ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 11 : 10,
+              vertical: compact ? 7 : 5,
             ),
-          );
-        }).toList(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  fl.zoomLabel,
+                  style: TextStyle(
+                    color: sel ? Colors.white : Colors.white38,
+                    fontSize: sel ? 13 : 12,
+                    fontWeight: sel ? FontWeight.w500 : FontWeight.w300,
+                  ),
+                ),
+                if (!compact)
+                  Text(
+                    fl.label,
+                    style: TextStyle(
+                      color: sel
+                          ? Colors.white38
+                          : Colors.white.withValues(alpha: 0.18),
+                      fontSize: 8,
+                    ),
+                  ),
+                const SizedBox(height: 3),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: sel ? 16 : 0,
+                  height: 1.5,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(
+                      alpha: sel ? 0.72 : 0.0,
+                    ),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }

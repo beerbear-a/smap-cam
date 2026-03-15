@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../core/config/ai_memory_assist.dart';
 import '../../core/config/pro_access.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/navigation/main_tab_provider.dart';
@@ -611,6 +612,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
   // ── 現像完了 ────────────────────────────────────────────────
 
   Widget _buildResult() {
+    final aiSettings = ref.watch(aiMemoryAssistSettingsProvider);
     return FadeTransition(
       opacity: _fadeIn,
       child: SafeArea(
@@ -765,6 +767,42 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
                 padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
                 child: Column(
                   children: [
+                    if (aiSettings.enabled &&
+                        aiSettings.promptAfterDevelop &&
+                        _session?.isFilmMode == true) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.of(context).pushReplacement(
+                              DarkFadeRoute(
+                                page: JournalScreen(
+                                  sessionId: widget.sessionId,
+                                  photos: _photos,
+                                  startWithAiAssist: true,
+                                ),
+                              ),
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: BorderSide(
+                              color: Colors.white.withValues(alpha: 0.28),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          child: const Text(
+                            'AIで思い出を整理する',
+                            style: TextStyle(
+                              fontSize: 15,
+                              letterSpacing: 1.8,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(

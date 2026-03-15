@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/config/ai_connection_settings.dart';
+import '../../core/config/ai_memory_assist.dart';
+import '../../core/config/runtime_compatibility.dart';
 import '../../core/config/pro_access.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
@@ -165,7 +168,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final activeSession = ref.watch(
       cameraProvider.select((state) => state.activeSession),
     );
+    final aiConnection = ref.watch(aiConnectionSettingsProvider);
+    final aiSettings = ref.watch(aiMemoryAssistSettingsProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
+    final effectiveAddonTabs = addonTabs.copyWith(
+      showMap: addonTabs.showMap && !RuntimeCompatibility.disableMapbox,
+    );
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -188,7 +196,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
               child: _SettingsOverviewCard(
                 activeSession: activeSession,
-                addonTabs: addonTabs,
+                addonTabs: effectiveAddonTabs,
                 onOpenCamera: () {
                   ref.read(mainTabIndexProvider.notifier).state = 0;
                 },
@@ -235,6 +243,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const Divider(color: Colors.white12, height: 1),
 
+            const _SectionHeader(title: 'AI'),
+            _SettingsTile(
+              title: 'AIログイン / 接続',
+              subtitle: aiConnection.summary,
+              trailing: _AiConnectionStatusChip(settings: aiConnection),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const _AiConnectionScreen(),
+                  ),
+                );
+              },
+            ),
+            _SettingsTile(
+              title: 'AIで思い出を整理',
+              subtitle: aiConnection.mode == AiConnectionMode.selfHosted &&
+                      !aiConnection.canUseSelfHosted
+                  ? '自前APIモードです。先に接続先を設定してください'
+                  : '写真やメモから、ロール全体の下書きを作ります',
+              trailing: Switch(
+                value: aiSettings.enabled,
+                onChanged: (value) => ref
+                    .read(aiMemoryAssistSettingsProvider.notifier)
+                    .setEnabled(value),
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
+            _SettingsTile(
+              title: '現像後に提案する',
+              subtitle: '現像完了のあと、AI整理付きでメモ画面へ進めます',
+              trailing: Switch(
+                value: aiSettings.enabled && aiSettings.promptAfterDevelop,
+                onChanged: aiSettings.enabled
+                    ? (value) => ref
+                        .read(aiMemoryAssistSettingsProvider.notifier)
+                        .setPromptAfterDevelop(value)
+                    : null,
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
+            _SettingsTile(
+              title: '文章の雰囲気',
+              subtitle: aiSettings.tone.description,
+              trailing: _AiToneSelector(
+                current: aiSettings.tone,
+                enabled: aiSettings.enabled,
+                onSelected: (tone) => ref
+                    .read(aiMemoryAssistSettingsProvider.notifier)
+                    .setTone(tone),
+              ),
+            ),
+            const _SettingsTile(
+              title: '送る情報',
+              subtitle: '場所名、テーマ、セッションメモ、写真ごとのメモと時刻を使って下書きを作ります。画像送信はまだ無効です。',
+            ),
+
+            const Divider(color: Colors.white12, height: 1),
+
+            if (RuntimeCompatibility.disableMapbox ||
+                RuntimeCompatibility.disableFragmentShaders) ...[
+              const _SectionHeader(title: '互換モード'),
+              _SettingsTile(
+                title: 'iOS 26 安定化対策',
+                subtitle: [
+                  RuntimeCompatibility.mapboxDisableReason,
+                  RuntimeCompatibility.fragmentShaderDisableReason,
+                ].whereType<String>().join('\n'),
+              ),
+              const Divider(color: Colors.white12, height: 1),
+            ],
+
             const _SectionHeader(title: '表示'),
             _SettingsTile(
               title: 'タブ名を表示',
@@ -250,12 +331,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             _SettingsTile(
               title: 'マップタブを表示',
-              subtitle: '非表示にするとカメラとアルバムだけになります',
+              subtitle: RuntimeCompatibility.disableMapbox
+                  ? (RuntimeCompatibility.mapboxDisableReason ??
+                      '現在はマップを表示できません')
+                  : '非表示にするとカメラとアルバムだけになります',
               trailing: Switch(
-                value: ref.watch(addonTabsVisibilityProvider).showMap,
-                onChanged: (value) => ref
-                    .read(addonTabsVisibilityProvider.notifier)
-                    .setMapVisible(value),
+                value: RuntimeCompatibility.disableMapbox
+                    ? false
+                    : ref.watch(addonTabsVisibilityProvider).showMap,
+                onChanged: RuntimeCompatibility.disableMapbox
+                    ? null
+                    : (value) => ref
+                        .read(addonTabsVisibilityProvider.notifier)
+                        .setMapVisible(value),
                 activeThumbColor: Colors.white,
                 inactiveTrackColor: Colors.white12,
               ),
@@ -428,11 +516,13 @@ class _SettingsTile extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? trailing;
+  final VoidCallback? onTap;
 
   const _SettingsTile({
     required this.title,
     this.subtitle,
     this.trailing,
+    this.onTap,
   });
 
   @override
@@ -442,6 +532,7 @@ class _SettingsTile extends StatelessWidget {
         final useStackedLayout = constraints.maxWidth < 360 && trailing != null;
 
         return InkWell(
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             child: useStackedLayout
@@ -531,6 +622,416 @@ class _UsernameField extends ConsumerWidget {
           FocusScope.of(context).unfocus();
         },
       ),
+    );
+  }
+}
+
+class _AiToneSelector extends StatelessWidget {
+  final AiMemoryTone current;
+  final bool enabled;
+  final ValueChanged<AiMemoryTone> onSelected;
+
+  const _AiToneSelector({
+    required this.current,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.45,
+      child: IgnorePointer(
+        ignoring: !enabled,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: AiMemoryTone.values.map((tone) {
+            final selected = tone == current;
+            return Padding(
+              padding: EdgeInsets.only(
+                left: tone == AiMemoryTone.values.first ? 0 : 6,
+              ),
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  onSelected(tone);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.12)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: selected ? Colors.white54 : Colors.white12,
+                    ),
+                  ),
+                  child: Text(
+                    tone.label,
+                    style: TextStyle(
+                      color: selected ? Colors.white : Colors.white38,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+}
+
+class _AiConnectionStatusChip extends StatelessWidget {
+  final AiConnectionSettings settings;
+
+  const _AiConnectionStatusChip({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final isConnected = settings.mode == AiConnectionMode.localPreview ||
+        settings.canUseSelfHosted;
+    final foreground = settings.mode == AiConnectionMode.localPreview
+        ? Colors.white70
+        : isConnected
+            ? const Color(0xFFF1D8AF)
+            : Colors.white54;
+    final background = settings.mode == AiConnectionMode.localPreview
+        ? Colors.white.withValues(alpha: 0.08)
+        : isConnected
+            ? const Color(0xFFF1D8AF).withValues(alpha: 0.12)
+            : Colors.white.withValues(alpha: 0.06);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Text(
+        settings.statusLabel,
+        style: TextStyle(
+          color: foreground,
+          fontSize: 11,
+          letterSpacing: 1.1,
+        ),
+      ),
+    );
+  }
+}
+
+class _AiConnectionScreen extends ConsumerStatefulWidget {
+  const _AiConnectionScreen();
+
+  @override
+  ConsumerState<_AiConnectionScreen> createState() =>
+      _AiConnectionScreenState();
+}
+
+class _AiConnectionScreenState extends ConsumerState<_AiConnectionScreen> {
+  late TextEditingController _displayNameController;
+  late TextEditingController _baseUrlController;
+  late TextEditingController _tokenController;
+  late AiConnectionMode _mode;
+
+  @override
+  void initState() {
+    super.initState();
+    final settings = ref.read(aiConnectionSettingsProvider);
+    _mode = settings.mode;
+    _displayNameController = TextEditingController(text: settings.displayName);
+    _baseUrlController = TextEditingController(text: settings.baseUrl);
+    _tokenController = TextEditingController(text: settings.accessToken);
+  }
+
+  @override
+  void dispose() {
+    _displayNameController.dispose();
+    _baseUrlController.dispose();
+    _tokenController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final notifier = ref.read(aiConnectionSettingsProvider.notifier);
+    final next = AiConnectionSettings(
+      mode: _mode,
+      displayName: _displayNameController.text.trim(),
+      baseUrl: _baseUrlController.text.trim(),
+      accessToken: _tokenController.text.trim(),
+    );
+    await notifier.save(next);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('AI接続設定を保存しました')),
+    );
+  }
+
+  Future<void> _clear() async {
+    _displayNameController.clear();
+    _baseUrlController.clear();
+    _tokenController.clear();
+    await ref
+        .read(aiConnectionSettingsProvider.notifier)
+        .clearSelfHostedCredentials();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('自前APIの接続情報を消去しました')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(aiConnectionSettingsProvider);
+    final currentStatus = _mode == AiConnectionMode.localPreview
+        ? 'ローカル下書きモード'
+        : settings.canUseSelfHosted &&
+                settings.baseUrl.trim() == _baseUrlController.text.trim() &&
+                settings.accessToken.trim() == _tokenController.text.trim()
+            ? '自前API 接続済み'
+            : '自前API 未接続';
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text(
+          'AIログイン / 接続',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w300,
+          ),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF121212),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'AIの接続方法',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '現在: $currentStatus',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'いまの生成はローカルでも動きます。ここでは将来の自前API接続先も先に保存できます。',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    height: 1.6,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '接続モード',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: AiConnectionMode.values.map((mode) {
+              final selected = mode == _mode;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      _mode = mode;
+                    });
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    margin: EdgeInsets.only(
+                      right: mode == AiConnectionMode.values.last ? 0 : 10,
+                    ),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : Colors.white.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: selected ? Colors.white54 : Colors.white12,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          mode.label,
+                          style: TextStyle(
+                            color: selected ? Colors.white : Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          mode.description,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.46),
+                            fontSize: 11,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          if (_mode == AiConnectionMode.selfHosted) ...[
+            const SizedBox(height: 20),
+            _AiConnectionField(
+              controller: _displayNameController,
+              label: '表示名',
+              hintText: 'my-ai-workspace',
+            ),
+            const SizedBox(height: 14),
+            _AiConnectionField(
+              controller: _baseUrlController,
+              label: 'API Base URL',
+              hintText: 'https://api.example.com',
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 14),
+            _AiConnectionField(
+              controller: _tokenController,
+              label: 'Access Token',
+              hintText: 'sk_live_...',
+              obscureText: true,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '保存済みトークン: ${settings.maskedToken}',
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: _save,
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            child: const Text(
+              '接続設定を保存',
+              style: TextStyle(letterSpacing: 1.2),
+            ),
+          ),
+          if (_mode == AiConnectionMode.selfHosted) ...[
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed: _clear,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white70,
+                side: const BorderSide(color: Colors.white24),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: const Text(
+                '自前APIの接続情報を消去',
+                style: TextStyle(letterSpacing: 1.0),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AiConnectionField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hintText;
+  final TextInputType? keyboardType;
+  final bool obscureText;
+
+  const _AiConnectionField({
+    required this.controller,
+    required this.label,
+    required this.hintText,
+    this.keyboardType,
+    this.obscureText = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          obscureText: obscureText,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: hintText,
+            hintStyle: const TextStyle(color: Colors.white24),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.04),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Colors.white12),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Colors.white12),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Colors.white38),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

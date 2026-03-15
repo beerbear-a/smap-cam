@@ -2,11 +2,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../core/config/ai_memory_assist.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/navigation/main_tab_provider.dart';
+import '../../core/models/ai_lifelog_draft.dart';
+import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/models/species.dart';
 import '../../core/widgets/mock_photo.dart';
+import '../ai_memory/ai_memory_assist_service.dart';
 import '../settings/settings_screen.dart';
 import '../share/share_service.dart';
 
@@ -14,12 +19,14 @@ class JournalScreen extends ConsumerStatefulWidget {
   final String sessionId;
   final List<Photo> photos;
   final int initialIndex;
+  final bool startWithAiAssist;
 
   const JournalScreen({
     super.key,
     required this.sessionId,
     required this.photos,
     this.initialIndex = 0,
+    this.startWithAiAssist = false,
   });
 
   @override
@@ -30,9 +37,19 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   late List<_JournalEntry> _entries;
   late final PageController _pageController;
   final _sessionMemoController = TextEditingController();
+  final _aiTitleController = TextEditingController();
+  final _aiSubtitleController = TextEditingController();
+  final _aiIntroController = TextEditingController();
+  final _aiBodyController = TextEditingController();
+  final _aiHashtagsController = TextEditingController();
   bool _isSaving = false;
+  bool _isLoadingAiDraft = true;
+  bool _isGeneratingAiDraft = false;
   int _currentIndex = 0;
   String? _sessionTheme;
+  String? _aiDraftId;
+  String? _aiDraftSocialSummary;
+  AiMemoryTone _aiDraftTone = AiMemoryTone.note;
 
   // レアリティ4 遭遇演出
   bool _showRareOverlay = false;
@@ -51,6 +68,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
             ))
         .toList();
     _loadSessionMemo();
+    _loadAiDraft();
   }
 
   Future<void> _loadSessionMemo() async {
@@ -60,15 +78,238 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     setState(() => _sessionTheme = session.theme);
   }
 
+  Future<void> _loadAiDraft() async {
+    final draft = await DatabaseHelper.getLatestAiLifelogDraftForSession(
+        widget.sessionId);
+    if (!mounted) return;
+    if (draft != null) {
+      _applyDraftToControllers(draft);
+    }
+    setState(() => _isLoadingAiDraft = false);
+    if (draft == null &&
+        widget.startWithAiAssist &&
+        ref.read(aiMemoryAssistSettingsProvider).enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _generateAiDraft();
+      });
+    }
+  }
+
   @override
   void dispose() {
     _pageController.dispose();
     _sessionMemoController.dispose();
+    _aiTitleController.dispose();
+    _aiSubtitleController.dispose();
+    _aiIntroController.dispose();
+    _aiBodyController.dispose();
+    _aiHashtagsController.dispose();
     for (final e in _entries) {
       e.subjectController.dispose();
       e.memoController.dispose();
     }
     super.dispose();
+  }
+
+  void _applyDraftToControllers(AiLifelogDraft draft) {
+    _aiDraftId = draft.draftId;
+    _aiDraftTone = draft.tone;
+    _aiDraftSocialSummary = draft.socialSummary;
+    _aiTitleController.text = draft.title ?? '';
+    _aiSubtitleController.text = draft.subtitle ?? '';
+    _aiIntroController.text = draft.intro ?? '';
+    _aiBodyController.text = draft.bodyPlainText ?? draft.bodyMarkdown ?? '';
+    _aiHashtagsController.text = draft.hashtags.map((tag) => '#$tag').join(' ');
+  }
+
+  List<Photo> _buildAiSourcePhotos() {
+    return _entries
+        .map(
+          (entry) => entry.photo.copyWith(
+            subject: entry.subjectController.text.trim().isEmpty
+                ? null
+                : entry.subjectController.text.trim(),
+            memo: entry.memoController.text.trim().isEmpty
+                ? null
+                : entry.memoController.text.trim(),
+          ),
+        )
+        .toList();
+  }
+
+  Future<FilmSession?> _buildAiSourceSession() async {
+    final session = await DatabaseHelper.getFilmSession(widget.sessionId);
+    if (session == null) return null;
+    final memo = _sessionMemoController.text.trim();
+    return session.copyWith(memo: memo.isEmpty ? null : memo);
+  }
+
+  List<String> _parseHashtags() {
+    return _aiHashtagsController.text
+        .split(RegExp(r'[\s,、]+'))
+        .map((token) => token.trim())
+        .where((token) => token.isNotEmpty)
+        .map((token) => token.startsWith('#') ? token.substring(1) : token)
+        .where((token) => token.isNotEmpty)
+        .toList();
+  }
+
+  AiLifelogDraft? _draftFromControllers(FilmSession session) {
+    final title = _aiTitleController.text.trim();
+    final subtitle = _aiSubtitleController.text.trim();
+    final intro = _aiIntroController.text.trim();
+    final body = _aiBodyController.text.trim();
+    final hashtags = _parseHashtags();
+    if (title.isEmpty &&
+        subtitle.isEmpty &&
+        intro.isEmpty &&
+        body.isEmpty &&
+        hashtags.isEmpty) {
+      return null;
+    }
+
+    final existingId = _aiDraftId;
+    final now = DateTime.now();
+    return AiLifelogDraft(
+      draftId: existingId ??
+          'draft_${widget.sessionId}_${now.millisecondsSinceEpoch}',
+      sessionId: widget.sessionId,
+      provider: 'local',
+      model: 'memory-assist-local-v1',
+      tone: _aiDraftTone,
+      title: title.isEmpty ? null : title,
+      subtitle: subtitle.isEmpty ? null : subtitle,
+      intro: intro.isEmpty ? null : intro,
+      bodyMarkdown: body.isEmpty ? null : body,
+      bodyPlainText: body.isEmpty ? null : body,
+      hashtags: hashtags,
+      socialSummary: _aiDraftSocialSummary,
+      sourceSnapshot: {
+        'theme': session.theme,
+        'memo': session.memo,
+        'photo_count': _entries.length,
+      },
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  Future<void> _persistAiDraft() async {
+    final session = await _buildAiSourceSession();
+    if (session == null) return;
+    final draft = _draftFromControllers(session);
+    if (draft == null) return;
+    await DatabaseHelper.insertAiLifelogDraft(draft);
+    _aiDraftId = draft.draftId;
+  }
+
+  Future<void> _generateAiDraft() async {
+    final settings = ref.read(aiMemoryAssistSettingsProvider);
+    if (!settings.enabled) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('設定から「AIで思い出を整理」を有効にしてください')),
+      );
+      return;
+    }
+    final session = await _buildAiSourceSession();
+    if (session == null) return;
+
+    setState(() => _isGeneratingAiDraft = true);
+    try {
+      final draft = await AiMemoryAssistService.generateDraft(
+        session: session,
+        photos: _buildAiSourcePhotos(),
+        tone: settings.tone,
+      );
+      await DatabaseHelper.insertAiLifelogDraft(draft);
+      if (!mounted) return;
+      setState(() {
+        _applyDraftToControllers(draft);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AIでの整理に失敗しました: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _isGeneratingAiDraft = false);
+    }
+  }
+
+  Future<void> _refineAiDraft(AiMemoryRefineAction action) async {
+    final session = await _buildAiSourceSession();
+    if (session == null) return;
+    final current = _draftFromControllers(session);
+    if (current == null) {
+      await _generateAiDraft();
+      return;
+    }
+
+    setState(() => _isGeneratingAiDraft = true);
+    try {
+      final refined = await AiMemoryAssistService.refineDraft(
+        draft: current,
+        session: session,
+        photos: _buildAiSourcePhotos(),
+        action: action,
+      );
+      await DatabaseHelper.insertAiLifelogDraft(refined);
+      if (!mounted) return;
+      setState(() {
+        _applyDraftToControllers(refined);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AI下書きの更新に失敗しました: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _isGeneratingAiDraft = false);
+    }
+  }
+
+  String _buildAiExportText({required bool markdown}) {
+    final title = _aiTitleController.text.trim();
+    final subtitle = _aiSubtitleController.text.trim();
+    final intro = _aiIntroController.text.trim();
+    final body = _aiBodyController.text.trim();
+    final hashtags = _parseHashtags();
+
+    if (markdown) {
+      return [
+        if (title.isNotEmpty) '# $title',
+        if (subtitle.isNotEmpty) subtitle,
+        if (intro.isNotEmpty) intro,
+        if (body.isNotEmpty) body,
+        if (hashtags.isNotEmpty) hashtags.map((tag) => '#$tag').join(' '),
+      ].join('\n\n').trim();
+    }
+
+    return [
+      if (title.isNotEmpty) title,
+      if (subtitle.isNotEmpty) subtitle,
+      if (intro.isNotEmpty) intro,
+      if (body.isNotEmpty) body,
+      if (hashtags.isNotEmpty) hashtags.map((tag) => '#$tag').join(' '),
+    ].join('\n\n').trim();
+  }
+
+  Future<void> _copyAiDraft() async {
+    final text = _buildAiExportText(markdown: true);
+    if (text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('note向けの本文をコピーしました')),
+    );
+  }
+
+  Future<void> _shareAiDraft() async {
+    final text = _buildAiExportText(markdown: false);
+    if (text.isEmpty) return;
+    await Share.share(text);
   }
 
   Future<void> _save() async {
@@ -113,6 +354,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
           session.copyWith(memo: memo.isEmpty ? null : memo),
         );
       }
+      await _persistAiDraft();
 
       setState(() => _isSaving = false);
 
@@ -151,6 +393,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   @override
   Widget build(BuildContext context) {
     final entry = _entries[_currentIndex];
+    final aiSettings = ref.watch(aiMemoryAssistSettingsProvider);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -396,6 +639,206 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                               hint: 'フィルムを見返したときに思い出したいこと',
                               maxLines: 3,
                             ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.03),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.06),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'AIで思い出を整理',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ),
+                                if (_isGeneratingAiDraft)
+                                  const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white38,
+                                      strokeWidth: 1.5,
+                                    ),
+                                  )
+                                else
+                                  Text(
+                                    aiSettings.tone.label,
+                                    style: const TextStyle(
+                                      color: Colors.white38,
+                                      fontSize: 11,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              aiSettings.enabled
+                                  ? '写真やメモから、このロール全体の下書きを作れます。noteに貼りやすい形にも整えられます。'
+                                  : '設定で有効にすると、ロール全体の記録を整理する下書きを作れます。',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.46),
+                                fontSize: 12,
+                                height: 1.5,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            if (!aiSettings.enabled)
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const SettingsScreen(),
+                                      ),
+                                    );
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white70,
+                                    side:
+                                        const BorderSide(color: Colors.white24),
+                                  ),
+                                  child: const Text('設定で有効にする'),
+                                ),
+                              )
+                            else ...[
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  FilledButton.tonal(
+                                    onPressed: _isGeneratingAiDraft
+                                        ? null
+                                        : _generateAiDraft,
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor:
+                                          Colors.white.withValues(alpha: 0.12),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    child: Text(
+                                      _aiDraftId == null ? '生成' : '書き直す',
+                                    ),
+                                  ),
+                                  OutlinedButton(
+                                    onPressed: _isGeneratingAiDraft
+                                        ? null
+                                        : () => _refineAiDraft(
+                                              AiMemoryRefineAction
+                                                  .refineForNote,
+                                            ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white70,
+                                      side: const BorderSide(
+                                          color: Colors.white24),
+                                    ),
+                                    child: const Text('note向けに整える'),
+                                  ),
+                                  OutlinedButton(
+                                    onPressed: _isGeneratingAiDraft
+                                        ? null
+                                        : () => _refineAiDraft(
+                                              AiMemoryRefineAction.shorten,
+                                            ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white70,
+                                      side: const BorderSide(
+                                          color: Colors.white24),
+                                    ),
+                                    child: const Text('短くする'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              if (_isLoadingAiDraft)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white24,
+                                        strokeWidth: 1.4,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else ...[
+                                _buildTextField(
+                                  controller: _aiTitleController,
+                                  hint: 'タイトル',
+                                ),
+                                const SizedBox(height: 10),
+                                _buildTextField(
+                                  controller: _aiSubtitleController,
+                                  hint: 'サブタイトル',
+                                  maxLines: 2,
+                                ),
+                                const SizedBox(height: 10),
+                                _buildTextField(
+                                  controller: _aiIntroController,
+                                  hint: '導入',
+                                  maxLines: 3,
+                                ),
+                                const SizedBox(height: 10),
+                                _buildTextField(
+                                  controller: _aiBodyController,
+                                  hint: '本文',
+                                  maxLines: 8,
+                                ),
+                                const SizedBox(height: 10),
+                                _buildTextField(
+                                  controller: _aiHashtagsController,
+                                  hint: '#上野動物園 #フィルムログ',
+                                  maxLines: 2,
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: _copyAiDraft,
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.white70,
+                                          side: const BorderSide(
+                                            color: Colors.white24,
+                                          ),
+                                        ),
+                                        child: const Text('コピー'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: FilledButton(
+                                        onPressed: _shareAiDraft,
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: Colors.white,
+                                          foregroundColor: Colors.black,
+                                        ),
+                                        child: const Text('共有'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
                           ],
                         ),
                       ),

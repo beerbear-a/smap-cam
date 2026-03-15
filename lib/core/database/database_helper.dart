@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../mock/mock_photo_library.dart';
+import '../models/ai_lifelog_draft.dart';
 import '../models/encounter.dart';
 import '../models/film_session.dart';
 import '../models/photo.dart';
@@ -10,10 +11,11 @@ import 'seed_data.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'zootocam.db';
-  static const _databaseVersion = 7;
+  static const _databaseVersion = 8;
 
   static const tableFilmSessions = 'film_sessions';
   static const tablePhotos = 'photos';
+  static const tableAiLifelogDrafts = 'ai_lifelog_drafts';
   static const tableZoos = 'zoos';
   static const tableSpecies = 'species';
   static const tableEncounters = 'encounters';
@@ -38,6 +40,7 @@ class DatabaseHelper {
 
   static Future<void> _onCreate(Database db, int version) async {
     await _createCoreTables(db);
+    await _createAiTables(db);
     await _createAnimalTables(db);
     await _seedData(db);
   }
@@ -76,6 +79,9 @@ class DatabaseHelper {
         "ALTER TABLE $tableFilmSessions ADD COLUMN develop_ready_at INTEGER",
       );
     }
+    if (oldVersion < 8) {
+      await _createAiTables(db);
+    }
   }
 
   static Future<void> _createCoreTables(Database db) async {
@@ -107,6 +113,29 @@ class DatabaseHelper {
         timestamp   INTEGER NOT NULL,
         subject     TEXT,
         memo        TEXT,
+        FOREIGN KEY (session_id) REFERENCES $tableFilmSessions(session_id)
+      )
+    ''');
+  }
+
+  static Future<void> _createAiTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableAiLifelogDrafts (
+        draft_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        tone TEXT NOT NULL,
+        title TEXT,
+        subtitle TEXT,
+        intro TEXT,
+        body_markdown TEXT,
+        body_plain_text TEXT,
+        hashtags_json TEXT,
+        social_summary TEXT,
+        source_snapshot_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
         FOREIGN KEY (session_id) REFERENCES $tableFilmSessions(session_id)
       )
     ''');
@@ -270,6 +299,42 @@ class DatabaseHelper {
       limit: 1,
     );
     return maps.isNotEmpty;
+  }
+
+  // ── AiLifelogDraft ───────────────────────────────────────
+
+  static Future<void> insertAiLifelogDraft(AiLifelogDraft draft) async {
+    final db = await database;
+    await db.insert(
+      tableAiLifelogDrafts,
+      draft.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<void> updateAiLifelogDraft(AiLifelogDraft draft) async {
+    final db = await database;
+    await db.update(
+      tableAiLifelogDrafts,
+      draft.toMap(),
+      where: 'draft_id = ?',
+      whereArgs: [draft.draftId],
+    );
+  }
+
+  static Future<AiLifelogDraft?> getLatestAiLifelogDraftForSession(
+    String sessionId,
+  ) async {
+    final db = await database;
+    final maps = await db.query(
+      tableAiLifelogDrafts,
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'updated_at DESC',
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return AiLifelogDraft.fromMap(maps.first);
   }
 
   // ── Photo ────────────────────────────────────────────────

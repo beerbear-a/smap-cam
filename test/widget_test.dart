@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zootocam/core/config/experience_rules.dart';
 import 'package:zootocam/core/models/film_session.dart';
 import 'package:zootocam/core/models/photo.dart';
 
@@ -73,7 +74,7 @@ void main() {
 
       expect(
         session.canRestoreNow(now: DateTime(2024, 6, 8, 11, 59)),
-        false,
+        !enforceAnalogExperienceRules ? true : false,
       );
       expect(
         session.canRestoreNow(now: DateTime(2024, 6, 8, 12, 0)),
@@ -113,7 +114,7 @@ void main() {
         developReadyAt: DateTime.now().subtract(const Duration(minutes: 1)),
       );
 
-      expect(session.isDevelopReady, false);
+      expect(session.isDevelopReady, !enforceAnalogExperienceRules);
       expect(readySession.isDevelopReady, true);
     });
   });

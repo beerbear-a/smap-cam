@@ -114,9 +114,11 @@ public class CameraPlugin: NSObject, FlutterPlugin {
                 let session = AVCaptureSession()
                 session.beginConfiguration()
 
-                // Use hd1920x1080 for better preview; photo capture overrides automatically
-                if session.canSetSessionPreset(.hd1920x1080) {
-                    session.sessionPreset = .hd1920x1080
+                // Favor lower-latency preview on device; photo capture quality is controlled separately.
+                if session.canSetSessionPreset(.hd1280x720) {
+                    session.sessionPreset = .hd1280x720
+                } else if session.canSetSessionPreset(.vga640x480) {
+                    session.sessionPreset = .vga640x480
                 } else {
                     session.sessionPreset = .photo
                 }
@@ -130,10 +132,6 @@ public class CameraPlugin: NSObject, FlutterPlugin {
                 // Photo output
                 let photoOutput = AVCapturePhotoOutput()
                 photoOutput.isHighResolutionCaptureEnabled = true
-                if #available(iOS 16.0, *) {
-                    photoOutput.maxPhotoDimensions = device.activeFormat.supportedMaxPhotoDimensions.last
-                        ?? photoOutput.maxPhotoDimensions
-                }
                 if session.canAddOutput(photoOutput) {
                     session.addOutput(photoOutput)
                     self.photoOutput = photoOutput
@@ -156,9 +154,9 @@ public class CameraPlugin: NSObject, FlutterPlugin {
                         if connection.isVideoOrientationSupported {
                             connection.videoOrientation = orientation
                         }
-                        // Stabilization
+                        // Preview stabilization adds visible latency on device.
                         if connection.isVideoStabilizationSupported {
-                            connection.preferredVideoStabilizationMode = .auto
+                            connection.preferredVideoStabilizationMode = .off
                         }
                     }
                 }
@@ -379,15 +377,15 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             currentInput = newInput
             currentDevice = targetDevice
 
-            if let connection = videoOutput?.connection(with: .video) {
-                let orientation = currentVideoOrientation()
-                if connection.isVideoOrientationSupported {
-                    connection.videoOrientation = orientation
+                if let connection = videoOutput?.connection(with: .video) {
+                    let orientation = currentVideoOrientation()
+                    if connection.isVideoOrientationSupported {
+                        connection.videoOrientation = orientation
+                    }
+                    if connection.isVideoStabilizationSupported {
+                        connection.preferredVideoStabilizationMode = .off
+                    }
                 }
-                if connection.isVideoStabilizationSupported {
-                    connection.preferredVideoStabilizationMode = .auto
-                }
-            }
             session.commitConfiguration()
         }
 

@@ -103,23 +103,30 @@ class FilmStillService {
     if (strength <= 0) return;
 
     final rect = ui.Offset.zero & size;
-    final gradient = ui.Gradient.radial(
-      ui.Offset(size.width / 2, size.height / 2),
-      math.max(size.width, size.height) * 0.62,
-      [
-        const ui.Color(0x00000000),
-        ui.Color.fromRGBO(0, 0, 0, strength * 0.45),
-        ui.Color.fromRGBO(0, 0, 0, strength * 0.92),
-      ],
-      const [0.38, 0.68, 1.0],
-    );
+    final center = ui.Offset(size.width / 2, size.height / 2);
+    final outer = ui.Path()..addRect(rect);
+    final rings = [
+      (1.08, 0.36, strength * 0.14),
+      (0.96, 0.50, strength * 0.20),
+      (0.84, 0.64, strength * 0.28),
+      (0.72, 0.76, strength * 0.36),
+    ];
 
-    canvas.save();
-    canvas.translate(size.width / 2, size.height / 2);
-    canvas.scale(1.0, 0.88);
-    canvas.translate(-size.width / 2, -size.height / 2);
-    canvas.drawRect(rect, ui.Paint()..shader = gradient);
-    canvas.restore();
+    for (final (widthScale, heightScale, alpha) in rings) {
+      final inner = ui.Path()
+        ..addOval(
+          ui.Rect.fromCenter(
+            center: center,
+            width: size.width * widthScale,
+            height: size.height * heightScale,
+          ),
+        );
+      final ring = ui.Path.combine(ui.PathOperation.difference, outer, inner);
+      canvas.drawPath(
+        ring,
+        ui.Paint()..color = ui.Color.fromRGBO(0, 0, 0, alpha.clamp(0.0, 1.0)),
+      );
+    }
   }
 
   static void _drawGrain(
@@ -136,28 +143,82 @@ class FilmStillService {
       LutType.natural => 0.075,
     };
     final grainSigma = baseSigma * intensity;
-    final random = math.Random(seed);
-    final paint = ui.Paint()..style = ui.PaintingStyle.fill;
+    final paint = ui.Paint()
+      ..style = ui.PaintingStyle.fill
+      ..isAntiAlias = false;
 
-    final step = math.max(3.0, math.min(size.width, size.height) / 220.0);
+    _drawGrainLayer(
+      canvas,
+      size,
+      paint: paint,
+      step: math.max(3.0, math.min(size.width, size.height) / 260.0),
+      seed: seed,
+      densityThreshold: 0.20,
+      grainSigma: grainSigma,
+      radiusBase: 0.22,
+      radiusRange: 0.55,
+      alphaScale: 0.46,
+      monochrome: true,
+    );
+    _drawGrainLayer(
+      canvas,
+      size,
+      paint: paint,
+      step: math.max(10.0, math.min(size.width, size.height) / 120.0),
+      seed: seed ^ 0x9E3779B9,
+      densityThreshold: 0.11,
+      grainSigma: grainSigma,
+      radiusBase: 0.8,
+      radiusRange: 1.6,
+      alphaScale: 0.14,
+      monochrome: false,
+    );
+  }
+
+  static void _drawGrainLayer(
+    ui.Canvas canvas,
+    ui.Size size, {
+    required ui.Paint paint,
+    required double step,
+    required int seed,
+    required double densityThreshold,
+    required double grainSigma,
+    required double radiusBase,
+    required double radiusRange,
+    required double alphaScale,
+    required bool monochrome,
+  }) {
+    final random = math.Random(seed);
     for (double x = 0; x < size.width; x += step) {
       for (double y = 0; y < size.height; y += step) {
-        if (random.nextDouble() > 0.42) continue;
+        if (random.nextDouble() > densityThreshold) continue;
 
-        final jitterX = (random.nextDouble() - 0.5) * 2.0;
-        final jitterY = (random.nextDouble() - 0.5) * 2.0;
-        final alpha = random.nextDouble() * grainSigma * 0.55;
-        final radius = 0.35 + random.nextDouble() * 0.55;
-        final isLight = random.nextDouble() > 0.55;
+        final jitterX = (random.nextDouble() - 0.5) * step * 0.9;
+        final jitterY = (random.nextDouble() - 0.5) * step * 0.9;
+        final alpha = random.nextDouble() * grainSigma * alphaScale;
+        final radius = radiusBase + random.nextDouble() * radiusRange;
 
-        paint.color = isLight
-            ? ui.Color.fromRGBO(255, 255, 255, alpha.clamp(0.0, 0.06))
-            : ui.Color.fromRGBO(
-                0,
-                0,
-                0,
-                (alpha * 0.75).clamp(0.0, 0.05),
-              );
+        if (monochrome) {
+          final isLight = random.nextDouble() > 0.56;
+          paint.color = isLight
+              ? ui.Color.fromRGBO(255, 255, 255, alpha.clamp(0.0, 0.06))
+              : ui.Color.fromRGBO(
+                  0,
+                  0,
+                  0,
+                  (alpha * 0.82).clamp(0.0, 0.055),
+                );
+        } else {
+          final isWarm = random.nextDouble() > 0.5;
+          paint.color = isWarm
+              ? ui.Color.fromRGBO(216, 176, 122, alpha.clamp(0.0, 0.035))
+              : ui.Color.fromRGBO(
+                  122,
+                  143,
+                  184,
+                  (alpha * 0.9).clamp(0.0, 0.03),
+                );
+        }
 
         canvas.drawCircle(ui.Offset(x + jitterX, y + jitterY), radius, paint);
       }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/config/runtime_compatibility.dart';
 import 'core/models/film_session.dart';
 import 'core/navigation/main_tab_provider.dart';
 import 'features/camera/camera_screen.dart';
@@ -18,13 +19,7 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
-  final _screens = const [
-    CameraScreen(),
-    AlbumScreen(),
-    MapScreen(),
-    ZukanScreen(),
-    SettingsScreen(),
-  ];
+  final Set<int> _initializedTabs = <int>{0};
 
   @override
   void initState() {
@@ -85,8 +80,30 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   void _onTabTap(int index) {
     final currentIndex = ref.read(mainTabIndexProvider);
     if (index == currentIndex) return;
+    _initializedTabs.add(index);
     HapticFeedback.selectionClick();
     ref.read(mainTabIndexProvider.notifier).state = index;
+  }
+
+  Widget _buildScreen(int index) {
+    if (!_initializedTabs.contains(index)) {
+      return const SizedBox.shrink();
+    }
+
+    return switch (index) {
+      0 => const CameraScreen(),
+      1 => const AlbumScreen(),
+      2 => RuntimeCompatibility.disableMapbox
+          ? _CompatibilityPlaceholder(
+              title: 'MAP DISABLED',
+              message:
+                  RuntimeCompatibility.mapboxDisableReason ?? 'マップを一時停止しています。',
+            )
+          : const MapScreen(),
+      3 => const ZukanScreen(),
+      4 => const SettingsScreen(),
+      _ => const SizedBox.shrink(),
+    };
   }
 
   @override
@@ -94,9 +111,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final showLabels = ref.watch(navigationLabelsVisibleProvider);
     final currentIndex = ref.watch(mainTabIndexProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
+    final showMapTab = addonTabs.showMap && !RuntimeCompatibility.disableMapbox;
     const showZukan = false;
-    final isCurrentTabHidden = (currentIndex == 2 && !addonTabs.showMap) ||
-        (currentIndex == 3 && !showZukan);
+    final isCurrentTabHidden =
+        (currentIndex == 2 && !showMapTab) || (currentIndex == 3 && !showZukan);
+    final visibleIndex = isCurrentTabHidden ? 0 : currentIndex;
+    _initializedTabs.add(visibleIndex);
 
     if (isCurrentTabHidden) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -108,15 +128,67 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: IndexedStack(
-        index: isCurrentTabHidden ? 0 : currentIndex,
-        children: _screens,
+        index: visibleIndex,
+        children: List.generate(5, _buildScreen),
       ),
       bottomNavigationBar: _BottomNav(
-        currentIndex: isCurrentTabHidden ? 0 : currentIndex,
+        currentIndex: visibleIndex,
         onTap: _onTabTap,
         showLabels: showLabels,
-        showMap: addonTabs.showMap,
+        showMap: showMapTab,
         showZukan: showZukan,
+      ),
+    );
+  }
+}
+
+class _CompatibilityPlaceholder extends StatelessWidget {
+  final String title;
+  final String message;
+
+  const _CompatibilityPlaceholder({
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.shield_outlined,
+                color: Colors.white54,
+                size: 34,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w300,
+                  letterSpacing: 2.4,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.6,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

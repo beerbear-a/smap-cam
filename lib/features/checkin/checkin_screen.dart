@@ -205,11 +205,15 @@ class _CheckInScreenState extends ConsumerState<CheckInScreen> {
     _showNewFilmSheet(context, zoo);
   }
 
-  void _showNewFilmSheet(BuildContext context, Zoo? zoo) {
+  Future<void> _showNewFilmSheet(BuildContext context, Zoo? zoo) async {
     final parentNavigator = Navigator.of(context);
-    showModalBottomSheet(
+    var created = false;
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      isDismissible: true,
+      enableDrag: true,
+      useSafeArea: true,
       backgroundColor: const Color(0xFF111111),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
@@ -218,15 +222,22 @@ class _CheckInScreenState extends ConsumerState<CheckInScreen> {
         final sheetNavigator = Navigator.of(ctx);
         return _NewFilmSheet(
           zoo: zoo,
+          onCancel: () => sheetNavigator.pop(),
           onCreated: () async {
+            created = true;
             await ref.read(cameraProvider.notifier).loadActiveSession();
             ref.read(mainTabIndexProvider.notifier).state = 0;
             sheetNavigator.pop();
-            parentNavigator.pop();
+            if (parentNavigator.canPop()) {
+              parentNavigator.pop();
+            }
           },
         );
       },
     );
+    if (!created && mounted) {
+      ref.read(checkInProvider.notifier).checkOut();
+    }
   }
 }
 
@@ -434,9 +445,14 @@ class _ZooListItem extends StatelessWidget {
 
 class _NewFilmSheet extends ConsumerStatefulWidget {
   final Zoo? zoo;
+  final VoidCallback onCancel;
   final Future<void> Function() onCreated;
 
-  const _NewFilmSheet({required this.zoo, required this.onCreated});
+  const _NewFilmSheet({
+    required this.zoo,
+    required this.onCancel,
+    required this.onCreated,
+  });
 
   @override
   ConsumerState<_NewFilmSheet> createState() => _NewFilmSheetState();
@@ -539,32 +555,53 @@ class _NewFilmSheetState extends ConsumerState<_NewFilmSheet> {
         children: [
           Row(
             children: [
-              if (widget.zoo != null) ...[
-                Icon(
-                  Icons.location_on,
-                  color: Colors.white.withValues(alpha: 0.4),
-                  size: 14,
+              IconButton(
+                onPressed: _isCreating ? null : widget.onCancel,
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Colors.white70,
+                  size: 18,
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    '${widget.zoo!.prefecture} の候補',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontSize: 12,
-                      letterSpacing: 1,
-                    ),
-                  ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Row(
+                  children: [
+                    if (widget.zoo != null) ...[
+                      Icon(
+                        Icons.location_on,
+                        color: Colors.white.withValues(alpha: 0.4),
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '${widget.zoo!.prefecture} の候補',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.4),
+                            fontSize: 12,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ),
+                    ] else
+                      Text(
+                        '自由に場所を決める',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          fontSize: 12,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                  ],
                 ),
-              ] else
-                Text(
-                  '自由に場所を決める',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.4),
-                    fontSize: 12,
-                    letterSpacing: 1,
-                  ),
-                ),
+              ),
+              TextButton(
+                onPressed: _isCreating ? null : widget.onCancel,
+                child: const Text('閉じる'),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -801,9 +838,8 @@ class _NewFilmSheetState extends ConsumerState<_NewFilmSheet> {
                           style: TextStyle(
                             color: selected ? Colors.white : Colors.white54,
                             fontSize: 11,
-                            fontWeight: selected
-                                ? FontWeight.w600
-                                : FontWeight.w400,
+                            fontWeight:
+                                selected ? FontWeight.w600 : FontWeight.w400,
                             letterSpacing: 0.8,
                           ),
                         ),

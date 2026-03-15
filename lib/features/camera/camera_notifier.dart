@@ -340,14 +340,21 @@ class CameraNotifier extends StateNotifier<CameraState> {
         state = state.copyWith(error: 'フィルムは27枚撮り切ってから現像します');
         return;
       }
-      final updated = session.copyWith(
-        status: FilmStatus.developing,
-        developReadyAt: DateTime.now().add(const Duration(hours: 1)),
-      );
+      final updated = enforceAnalogExperienceRules
+          ? session.copyWith(
+              status: FilmStatus.developing,
+              developReadyAt: DateTime.now().add(const Duration(hours: 1)),
+            )
+          : session.copyWith(
+              status: FilmStatus.developed,
+              developReadyAt: DateTime.now(),
+            );
       await DatabaseHelper.updateFilmSession(updated);
       state = state.copyWith(
         activeSession: null,
-        error: '現像は1時間後に始められます。アルバムの「現像待ち」から開けます',
+        error: enforceAnalogExperienceRules
+            ? '現像は1時間後に始められます。アルバムの「現像待ち」から開けます'
+            : null,
       );
       return;
     }
@@ -363,6 +370,27 @@ class CameraNotifier extends StateNotifier<CameraState> {
     final updated = session.copyWith(captureMode: mode);
     await DatabaseHelper.updateFilmSession(updated);
     state = state.copyWith(activeSession: updated, error: null);
+  }
+
+  Future<void> startInstantSession() async {
+    final session = state.activeSession;
+    if (session != null) {
+      if (session.isInstantMode) {
+        state = state.copyWith(error: null);
+        return;
+      }
+      state = state.copyWith(error: 'いまのフィルムを閉じてからインスタントへ切り替えてください');
+      return;
+    }
+
+    final instantSession = FilmSession(
+      sessionId: const Uuid().v4(),
+      title: '今日のインスタント',
+      date: DateTime.now(),
+      captureMode: CaptureMode.instant,
+    );
+    await DatabaseHelper.insertFilmSession(instantSession);
+    state = state.copyWith(activeSession: instantSession, error: null);
   }
 
   Future<void> prepareForFilmStart() async {
@@ -540,14 +568,19 @@ class CameraNotifier extends StateNotifier<CameraState> {
               session.copyWith(photoCount: session.photoCount + 1);
 
       if (refreshedSession.isFilmMode && refreshedSession.isFull) {
-        final developing = refreshedSession.copyWith(
-          status: FilmStatus.developing,
-          developReadyAt: DateTime.now().add(const Duration(hours: 1)),
-        );
-        await DatabaseHelper.updateFilmSession(developing);
+        final completed = enforceAnalogExperienceRules
+            ? refreshedSession.copyWith(
+                status: FilmStatus.developing,
+                developReadyAt: DateTime.now().add(const Duration(hours: 1)),
+              )
+            : refreshedSession.copyWith(
+                status: FilmStatus.developed,
+                developReadyAt: DateTime.now(),
+              );
+        await DatabaseHelper.updateFilmSession(completed);
         state = state.copyWith(
           activeSession: null,
-          completedRollSession: developing,
+          completedRollSession: completed,
           isCapturing: false,
           error: null,
           simulatorPreviewPath:
