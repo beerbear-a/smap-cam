@@ -32,7 +32,11 @@ class RuntimeCompatibility {
   static bool get disableFragmentShaders {
     if (_forceEnableFragmentShaders) return false;
     if (_forceDisableFragmentShaders) return true;
-    return isIOS26OrLater;
+    // iOS 26+ でのクラッシュ原因は Mapbox 起動 (→ disableMapbox で対処済み) と
+    // Impeller (→ FLTEnableImpeller=false で対処済み)。
+    // Skia レンダラー上での FragmentProgram は問題なく動作するため
+    // iOS 26 チェックを除外する。
+    return false;
   }
 
   static String? get mapboxDisableReason {
@@ -50,9 +54,6 @@ class RuntimeCompatibility {
     if (!disableFragmentShaders) return null;
     if (_forceDisableFragmentShaders) {
       return '起動安定化のため、GLSL シェーダーを明示的に無効化しています。';
-    }
-    if (isIOS26OrLater) {
-      return 'iOS 26 系では FragmentProgram の互換性確認まで安全な色補正表示へ切り替えています。';
     }
     return 'GLSL シェーダーを一時停止しています。';
   }
