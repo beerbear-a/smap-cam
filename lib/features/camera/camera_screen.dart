@@ -1142,23 +1142,35 @@ class _RollCompletedOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'フィルムを撮り切りました',
+                  '27枚、撮り切りました',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 20,
                     fontWeight: FontWeight.w300,
-                    letterSpacing: 0.5,
+                    letterSpacing: 1.2,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
+                Text(
+                  '現像まで、少しだけ待ってください',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontSize: 12,
+                    letterSpacing: 0.8,
+                    height: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
                   canDevelop
-                      ? '現像の準備ができました'
+                      ? '現像の準備が整いました'
                       : waitText.isNotEmpty
                           ? waitText
                           : 'しばらく待つと現像できます',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.6),
+                    color: canDevelop
+                        ? const Color(0xFFFFD580)
+                        : Colors.white.withValues(alpha: 0.45),
                     fontSize: 13,
                     height: 1.5,
                   ),

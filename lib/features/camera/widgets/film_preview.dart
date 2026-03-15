@@ -27,13 +27,13 @@ enum LutType {
   String get subtitle {
     switch (this) {
       case LutType.natural:
-        return 'やわらかな暖色';
+        return '写ルんです ISO800';
       case LutType.warm:
-        return '黄金色の夕暮れ';
+        return 'Kodak Gold / 期限切れ';
       case LutType.fuji:
-        return '澄んだ鮮やか';
+        return 'Superia 400';
       case LutType.mono:
-        return '銀塩モノクローム';
+        return 'HP5 Plus 400 B&W';
     }
   }
 

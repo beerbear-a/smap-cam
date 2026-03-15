@@ -220,7 +220,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
               ),
               const SizedBox(height: 10),
               Text(
-                'Proなら、フィルム現像の待ち時間をスキップしてすぐ開けます。',
+                '待つのも、フィルムの一部です。\nProなら、今夜のうちに開けることができます。',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.62),
                   fontSize: 13,
@@ -587,7 +587,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
                   padding: const EdgeInsets.symmetric(vertical: 15),
                 ),
                 child: Text(
-                  isPro ? '今すぐ現像する' : '今すぐ現像する  PRO',
+                  isPro ? '今夜、現像する' : '今夜、現像する  PRO',
                   style: const TextStyle(letterSpacing: 1.4),
                 ),
               ),
@@ -911,8 +911,8 @@ class _IndexSheetCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             isGenerating
-                ? '撮り切ったロールから、現像所のインデックスシートを作っています。'
-                : '撮り切ったフィルムから、自動でインデックスシートを書き出しました。',
+                ? '27枚が1枚のシートになっています。少しお待ちください。'
+                : '27枚が、1枚のシートに揃いました。',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.6),
               fontSize: 12,
