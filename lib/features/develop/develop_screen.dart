@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,6 +50,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
   FilmSession? _session;
   String? _indexSheetPath;
   bool _isGeneratingIndexSheet = false;
+  Timer? _waitingTimer;
 
   LutType get _effectiveLutType =>
       _session?.isFilmMode == true ? LutType.natural : widget.lutType;
@@ -86,6 +88,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
     _chemController.dispose();
     _stripController.dispose();
     _fadeController.dispose();
+    _waitingTimer?.cancel();
     super.dispose();
   }
 
@@ -113,6 +116,11 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
         _photos = photos;
         _indexSheetPath = session.indexSheetPath;
         _isWaiting = true;
+      });
+      // 30秒ごとに残り時間表示を更新
+      _waitingTimer?.cancel();
+      _waitingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
       });
       return;
     }
@@ -915,7 +923,7 @@ class _IndexSheetCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: AspectRatio(
-              aspectRatio: 1.48,
+              aspectRatio: 900 / 600, // IndexSheet 出力サイズ(900×600)に合わせた 3:2
               child: isGenerating
                   ? Container(
                       color: const Color(0xFFF3EDE1),

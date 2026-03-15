@@ -251,7 +251,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
               const SizedBox(height: 4),
               Text(
                 session.isFilmMode
-                    ? '${FilmSession.maxPhotos - session.remainingShots} 枚撮影済み'
+                    ? '${session.photoCount} / ${FilmSession.maxPhotos} 枚'
                     : '${session.photoCount} 枚を記録しました',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.4),
@@ -923,10 +923,12 @@ class _SessionIndicator extends StatelessWidget {
         ),
       );
     }
-    final remaining = _predictedRemainingShots(
-      session,
-      isCapturing: isCapturing,
-    );
+    // フィルムカメラらしく「撮影済み枚数 / 合計」で数え上げ表示
+    // isCapturing 中は +1 して応答性を確保
+    final predictedTaken = FilmSession.maxPhotos -
+        _predictedRemainingShots(session, isCapturing: isCapturing);
+    final frameNum =
+        predictedTaken.clamp(0, FilmSession.maxPhotos);
     return Container(
       constraints: const BoxConstraints(minHeight: 46),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -948,7 +950,7 @@ class _SessionIndicator extends StatelessWidget {
           ),
           const SizedBox(width: 5),
           Text(
-            '残り ${remaining.toString().padLeft(2, '0')}',
+            '${frameNum.toString().padLeft(2, '0')} / ${FilmSession.maxPhotos}',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 13,
