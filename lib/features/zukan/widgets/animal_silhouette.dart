@@ -315,8 +315,7 @@ class _SilhouettePainter extends CustomPainter {
 
     // 目のパッチ（パンダ）
     if (cfg.unique == UniqueFeature.eyePatches) {
-      final eyePaint = Paint()..color = Colors.black.withValues(alpha: 0.6);
-      // ペイントは config color に依存するので省略、形状だけ追加
+      // 目のパッチ形状のみ追加（色は config color に依存するため省略）
       p.addOval(Rect.fromCenter(center: Offset(w * 0.68, h * 0.22), width: w * 0.10, height: w * 0.07));
       p.addOval(Rect.fromCenter(center: Offset(w * 0.80, h * 0.22), width: w * 0.10, height: w * 0.07));
     }
@@ -643,7 +642,6 @@ class _SilhouettePainter extends CustomPainter {
   }
 
   void _drawArm(Path p, Offset shoulder, double length, {required bool isLeft}) {
-    final dx = isLeft ? -length * 0.3 : length * 0.3;
     p.addRRect(RRect.fromRectAndRadius(
       Rect.fromLTWH(
         shoulder.dx - 4,

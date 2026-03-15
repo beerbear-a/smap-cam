@@ -38,7 +38,22 @@ class FilmSessionNotifier extends StateNotifier<FilmSessionState> {
     double? lat,
     double? lng,
     String? zooId,
+    String? theme,
+    String? memo,
+    CaptureMode captureMode = CaptureMode.film,
   }) async {
+    final current = await DatabaseHelper.getActiveSession();
+    if (current != null) {
+      if (current.isInstantMode && current.photoCount == 0) {
+        await DatabaseHelper.deleteFilmSession(current.sessionId);
+      } else {
+        final updatedCurrent = current.isFilmMode
+            ? current.copyWith(status: FilmStatus.shelved)
+            : current.copyWith(status: FilmStatus.developed);
+        await DatabaseHelper.updateFilmSession(updatedCurrent);
+      }
+    }
+
     final session = FilmSession(
       sessionId: const Uuid().v4(),
       title: title,
@@ -47,6 +62,9 @@ class FilmSessionNotifier extends StateNotifier<FilmSessionState> {
       lng: lng,
       zooId: zooId,
       date: DateTime.now(),
+      theme: theme,
+      memo: memo,
+      captureMode: captureMode,
     );
     await DatabaseHelper.insertFilmSession(session);
     await loadSessions();
@@ -64,7 +82,18 @@ class FilmSessionNotifier extends StateNotifier<FilmSessionState> {
   Future<void> markDeveloped(String sessionId) async {
     final session = await DatabaseHelper.getFilmSession(sessionId);
     if (session == null) return;
-    final updated = session.copyWith(status: FilmStatus.developed);
+    final updated = session.copyWith(
+      status: FilmStatus.developed,
+      developReadyAt: session.developReadyAt,
+    );
+    await DatabaseHelper.updateFilmSession(updated);
+    await loadSessions();
+  }
+
+  Future<void> unlockDevelopNow(String sessionId) async {
+    final session = await DatabaseHelper.getFilmSession(sessionId);
+    if (session == null) return;
+    final updated = session.copyWith(developReadyAt: DateTime.now());
     await DatabaseHelper.updateFilmSession(updated);
     await loadSessions();
   }

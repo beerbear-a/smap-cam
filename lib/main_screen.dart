@@ -1,42 +1,122 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/models/film_session.dart';
+import 'core/navigation/main_tab_provider.dart';
+import 'features/camera/camera_screen.dart';
+import 'features/album/album_screen.dart';
 import 'features/map/map_screen.dart';
 import 'features/zukan/zukan_screen.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/develop/auto_develop_service.dart';
 
-class MainScreen extends StatefulWidget {
+class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
-
+class _MainScreenState extends ConsumerState<MainScreen> {
   final _screens = const [
+    CameraScreen(),
+    AlbumScreen(),
     MapScreen(),
     ZukanScreen(),
     SettingsScreen(),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _processExpiredFilmDevelopment();
+    });
+  }
+
+  Future<void> _processExpiredFilmDevelopment() async {
+    final sessions = await AutoDevelopService.processExpiredFilms();
+    if (!mounted || sessions.isEmpty) return;
+
+    final openAlbum = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF141414),
+        title: const Text(
+          '現像通知',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          _buildAutoDevelopMessage(sessions),
+          style: const TextStyle(color: Colors.white70, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('あとで見る'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('アルバムを開く'),
+          ),
+        ],
+      ),
+    );
+
+    await AutoDevelopService.clearPendingNotifications(
+      sessions.map((session) => session.sessionId),
+    );
+
+    if (!mounted) return;
+    if (openAlbum == true) {
+      ref.read(mainTabIndexProvider.notifier).state = 1;
+    }
+  }
+
+  String _buildAutoDevelopMessage(List<FilmSession> sessions) {
+    final titles =
+        sessions.take(3).map((session) => '・${session.title}').join('\n');
+    final extraCount = sessions.length - 3;
+    final suffix = extraCount > 0 ? '\nほか $extraCount 本' : '';
+    return '1年以上現像されなかったフィルムを自動で現像しました。\n\n$titles$suffix';
+  }
+
   void _onTabTap(int index) {
-    if (index == _currentIndex) return;
+    final currentIndex = ref.read(mainTabIndexProvider);
+    if (index == currentIndex) return;
     HapticFeedback.selectionClick();
-    setState(() => _currentIndex = index);
+    ref.read(mainTabIndexProvider.notifier).state = index;
   }
 
   @override
   Widget build(BuildContext context) {
+    final showLabels = ref.watch(navigationLabelsVisibleProvider);
+    final currentIndex = ref.watch(mainTabIndexProvider);
+    final addonTabs = ref.watch(addonTabsVisibilityProvider);
+    const showZukan = false;
+    final isCurrentTabHidden = (currentIndex == 2 && !addonTabs.showMap) ||
+        (currentIndex == 3 && !showZukan);
+
+    if (isCurrentTabHidden) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(mainTabIndexProvider.notifier).state = 0;
+      });
+    }
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: IndexedStack(
-        index: _currentIndex,
+        index: isCurrentTabHidden ? 0 : currentIndex,
         children: _screens,
       ),
       bottomNavigationBar: _BottomNav(
-        currentIndex: _currentIndex,
+        currentIndex: isCurrentTabHidden ? 0 : currentIndex,
         onTap: _onTabTap,
+        showLabels: showLabels,
+        showMap: addonTabs.showMap,
+        showZukan: showZukan,
       ),
     );
   }
@@ -46,9 +126,18 @@ class _MainScreenState extends State<MainScreen> {
 
 class _BottomNav extends StatelessWidget {
   final int currentIndex;
+  final bool showLabels;
+  final bool showMap;
+  final bool showZukan;
   final void Function(int) onTap;
 
-  const _BottomNav({required this.currentIndex, required this.onTap});
+  const _BottomNav({
+    required this.currentIndex,
+    required this.onTap,
+    required this.showLabels,
+    required this.showMap,
+    required this.showZukan,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -65,29 +154,50 @@ class _BottomNav extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 56,
+          height: showLabels ? 56 : 44,
           child: Row(
             children: [
               _NavItem(
-                icon: Icons.map_outlined,
-                activeIcon: Icons.map,
-                label: 'マップ',
+                icon: Icons.camera_alt_outlined,
+                activeIcon: Icons.camera_alt,
+                label: 'カメラ',
                 selected: currentIndex == 0,
+                showLabel: showLabels,
                 onTap: () => onTap(0),
               ),
               _NavItem(
-                icon: Icons.grid_view_outlined,
-                activeIcon: Icons.grid_view,
-                label: '図鑑',
+                icon: Icons.photo_library_outlined,
+                activeIcon: Icons.photo_library,
+                label: 'アルバム',
                 selected: currentIndex == 1,
+                showLabel: showLabels,
                 onTap: () => onTap(1),
               ),
+              if (showMap)
+                _NavItem(
+                  icon: Icons.map_outlined,
+                  activeIcon: Icons.map,
+                  label: 'マップ',
+                  selected: currentIndex == 2,
+                  showLabel: showLabels,
+                  onTap: () => onTap(2),
+                ),
+              if (showZukan)
+                _NavItem(
+                  icon: Icons.grid_view_outlined,
+                  activeIcon: Icons.grid_view,
+                  label: '図鑑',
+                  selected: currentIndex == 3,
+                  showLabel: showLabels,
+                  onTap: () => onTap(3),
+                ),
               _NavItem(
-                icon: Icons.sliders_outlined,
-                activeIcon: Icons.sliders,
+                icon: Icons.settings_outlined,
+                activeIcon: Icons.settings,
                 label: '設定',
-                selected: currentIndex == 2,
-                onTap: () => onTap(2),
+                selected: currentIndex == 4,
+                showLabel: showLabels,
+                onTap: () => onTap(4),
               ),
             ],
           ),
@@ -102,6 +212,7 @@ class _NavItem extends StatelessWidget {
   final IconData activeIcon;
   final String label;
   final bool selected;
+  final bool showLabel;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -109,6 +220,7 @@ class _NavItem extends StatelessWidget {
     required this.activeIcon,
     required this.label,
     required this.selected,
+    required this.showLabel,
     required this.onTap,
   });
 
@@ -138,18 +250,19 @@ class _NavItem extends StatelessWidget {
               color: selected ? Colors.white : Colors.white38,
               size: 22,
             ),
-            const SizedBox(height: 3),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style: TextStyle(
-                color: selected ? Colors.white : Colors.white38,
-                fontSize: 10,
-                letterSpacing: 1,
-                fontWeight:
-                    selected ? FontWeight.w400 : FontWeight.w300,
+            if (showLabel) ...[
+              const SizedBox(height: 3),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white38,
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  fontWeight: selected ? FontWeight.w400 : FontWeight.w300,
+                ),
+                child: Text(label),
               ),
-              child: Text(label),
-            ),
+            ],
           ],
         ),
       ),

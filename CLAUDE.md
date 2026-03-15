@@ -17,7 +17,83 @@
 種 × 動物園 × 日時 × 写真 × メモ で即引き出せる
 ```
 
-**カメラは記録のエントリーポイント。主役は記録・図鑑・マップ。**
+**カメラは記録のエントリーポイント。現時点の主役はカメラ体験そのもの。**
+
+## 現在の方針メモ（Claude / Codex 向け）
+
+最終更新: 2026-03-15
+
+オーナー判断として、**いま最優先で整えるべきなのは動物園機能ではなくカメラ体験そのもの**です。
+
+- まずは「フィルムを選ぶ」「撮る」「撮り切る」「現像する」「アルバムに残す」という体験を、単体のカメラアプリとして成立させる
+- 動物園・図鑑・マップ・遭遇記録は、このコア体験の上に載る addon として扱う
+- 新規実装やUI調整では、動物園固有の前提をカメラ導線へ無理に持ち込まない
+- カメラの誤タップ防止、片手操作、撮影フローの一貫性、フィルムらしい制約の気持ちよさを優先する
+- アルバムや現像も「動物管理」ではなく「思い出のロール整理」として設計する
+
+補足:
+- 動物園データや図鑑を消す判断ではない
+- 優先順位の問題として、今は camera-first をさらに徹底する
+- この方針に異論がある場合は、実装を広げる前に tradeoff を明示して相談すること
+
+## 現在の実装スナップショット
+
+最終更新: 2026-03-15
+
+この節は、下の履歴的な Sprint 表や MVP 完成表より優先して読むこと。
+**現行コードの実態は「camera-first へ舵を切り直した移行途中 + シェーダーエンジン完成済み」**です。
+
+### 今のプロダクト判断
+
+- 外注としての所感も含め、現時点では **カメラ体験の完成度を上げることが最重要**
+- Zoo / Map / Zukan は価値があるが、今は主導線ではなく addon として扱う
+- 動物園の文脈を増やす前に、`撮る -> 撮り切る -> 待つ -> 現像する -> アルバムで見返す -> メモする` を気持ちよくする
+- UI 修正では「誤タップを減らす」「ファインダーを邪魔しない」「戻れる」「迷子にしない」を優先する
+
+### 現在の実装で成立しているコア体験
+
+- フィルムモード
+  - 27枚撮り切るまで同じロールを使う
+  - 1日1本まで（dev mode では制限を緩める前提）
+  - 撮り切ったら 1 時間待ってから現像
+  - 撮り切ったロールはインデックスシートを生成して保存する
+  - 1年放置された現像待ちロールは、起動時に自動現像ダイアログを出す
+- インスタントモード
+  - すぐ撮れる
+  - 電池 100 ショットで打ち止め
+  - インデックスシートは作らない
+- フィルム退避
+  - フィルムからインスタントへ切り替える時は警告を出す
+  - 実際には削除せず `shelved` 扱いにして設定画面から復元
+  - 復元は 1 本ごとに 7 日に 1 回
+- 現像完了後
+  - インデックスシート確認 -> 1枚ずつ閲覧 -> メモ編集 -> アルバムへ戻る、の導線あり
+
+### シェーダーエンジン現況（2026-03-15 完成）
+
+4本の専用シェーダーがそれぞれ異なる乳剤を光化学的に再現済み。詳細は「写真エンジン」節を参照。
+
+| シェーダー | バージョン | フィルム | 状態 |
+|-----------|----------|---------|------|
+| `film_iso800.frag` | v5 | 写ルんです QuickSnap ISO800 | ✅ 完成 |
+| `film_fuji400.frag` | v1 | Fujifilm Superia 400 | ✅ 完成 |
+| `film_mono_hp5.frag` | v1 | Ilford HP5 Plus 400 B&W | ✅ 完成 |
+| `film_warm.frag` | v1 | Kodak Gold / 期限切れフィルム | ✅ 完成 |
+
+### まだ整理途中の領域
+
+- `CheckInScreen` は名前も UI もまだ zoo-first の名残が強い
+- Map / Zukan は使えるが、camera-first の主導線に対して存在感がまだ強い
+- 下の「実装済み機能」表は歴史的な達成ログを含み、現在の優先順位や完成度をそのまま表していない
+
+### AI への作業ルール
+
+- **シェーダー担当 (Claude)**: `shaders/` と `film_preview.dart` の GLSL パイプライン部分を管轄。LUTパラメータチューニングも Claude。
+- **UI 担当 (Codex/GPT)**: それ以外の Flutter 画面。shader の責務には触れない。
+- `Mapbox` の deprecated 解消や図鑑の軽微 warning は後回しでよい
+- 大きな UI 変更時は、必ず「戻る導線」「アルバムへの帰着」「シミュレーターでの確認方法」を残す
+- 当日状況の詳細は `docs/AI_HANDOFF_2026-03-14.md` を参照する
+- 分業ログ: `docs/ONETIME_SYNC_NOTE.md`
 
 ### 設計思想
 - **Discovery Over Impression** — いいね数より、発見の感動
@@ -77,8 +153,10 @@ lib/
 │   └── settings/       # ユーザー設定（username・透かし）
 │
 shaders/
-└── film_iso800.frag    # GLSL: トーンカーブ・カラーバイアス・フィルムグレイン・
-                        #       ビネット・ハレーション
+├── film_iso800.frag    # 写ルんです QuickSnap ISO800 — D-min/3ゾーンカラー/樽型歪曲/per-ch halation
+├── film_fuji400.frag   # Fujifilm Superia 400 — シアン床/高彩度/冷色ハレーション
+├── film_mono_hp5.frag  # Ilford HP5 Plus 400 B&W — パンクロマティック/銀塩グレイン/セレン調色
+└── film_warm.frag      # Kodak Gold 期限切れ — 全域ゴールデン/フォグ/粗大粒子
 ```
 
 ---
@@ -103,16 +181,65 @@ shaders/
 
 このアプリの技術的コアは **GLSL シェーダーパイプライン** です。
 
+### シェーダー一覧（2026-03-15 時点: 4本）
+
+| ファイル | LutType | フィルム | 核心特性 |
+|---------|---------|---------|---------|
+| `film_iso800.frag` v5 | `natural` | 写ルんです QuickSnap ISO800 | アンバーD-min・3ゾーンカラー・k=0.08樽型歪曲・per-ch halation(R>G>B)・C41クロスオーバー |
+| `film_fuji400.frag` v1 | `fuji` | Fujifilm Superia 400 | シアン床(G>B>R)・高彩度・Fuji緑クロスオーバー・冷色ハレーション(B>G>R)・k=0.06 |
+| `film_mono_hp5.frag` v1 | `mono` | Ilford HP5 Plus 400 | パンクロ変換(R:0.334/G:0.556/B:0.110)・銀塩グレイン(全ch同一)・セレン/冷調トーニング |
+| `film_warm.frag` v1 | `warm` | Kodak Gold 期限切れ | 全域ゴールデン・期限切れフォグ・緑→黄シフト・強 blue crush・広域アンバーhalation |
+
+### 各シェーダーの共通パイプライン
+
 ```
-shaders/film_iso800.frag
-├── Tone Curve  — S字カーブでシャドウ持ち上げ・ハイライト圧縮
-├── Color Bias  — 暖色シフト（Kodak ISO800風）
-├── Film Grain  — ISO800相当のフィルムグレイン（σ≈0.08）
-├── Vignette    — 四隅暗化
-└── Halation    — ハイライト赤チャンネル滲み
+coverUV()            → 樽型歪曲 + BoxFit.cover アスペクト補正
+sampleLens()         → 周辺ソフトネス(9-tap) + 色収差
+applyFilmCurve()     → チャンネル別 D-min toe + shoulder cap
+applyShadowDesat()   → 最暗部の色素形成不完全 → モノクローム底
+applyColorSplit()    → 3ゾーン (shadow/mid/highlight) 色分割
+applyMilkyHighlights() → ハイライト乳白化
+applyHalation()      → per-channel Gaussian blur (R>G>B 浸透深度)
+applyVignette()      → 楕円ビネット (二段構成)
+applyFilmGrain()     → 3スケール整数 PCG hash グレイン
 ```
 
-**LUTは現在1種。追加はシェーダーファイルを `shaders/` に追加して `pubspec.yaml` の `shaders:` セクションに登録する。**
+### グレイン実装（v5: PCG hash）
+
+旧実装の `float UV / 89.3` は隣接ピクセル間の hash 入力差が ≈0.007 → 相関した滑らかなノイズ。
+現行は **整数ピクセル座標 + PCG hash** で完全非相関を保証。
+
+```
+粗クラスター (grain_size × 2.2–3.2 px) — value noise  → "かたまり感"
+グレインセル (grain_size px)            — 整数 PCG hash → "粒が立つ"
+スパークル   (grain_size / 2 px)        — 整数 PCG hash → "キラキラ感"
+チャンネル独立 (R/G/B 別 ch 引数)                       → "色のちらつき"
+```
+
+### Flutter 側アーキテクチャ (`film_preview.dart`)
+
+```
+LutType
+├── .shaderAsset   → per-LUT シェーダーファイルパス
+├── .shaderParams  → FilmShaderParams (14パラメータ)
+├── .colorMatrix   → ライブプレビュー用 ColorFilter.matrix (20値)
+└── .vignetteStrength
+
+FilmShaderImage          → 静止画ファイルに GLSL を適用 (現像・アルバム)
+FilmProcessedSurface     → 任意 child に ColorFilter + Grain を適用
+_loadShaderProgram(asset)→ per-LUT Map キャッシュ
+FilmShaderPainter        → 19 float uniform + image sampler を設定
+```
+
+**ライブカメラプレビュー**: プラットフォームテクスチャは GLSL サンプリング不可 → `ColorFilter.matrix` + `_GrainPainter` (12fps) で代替。
+**静止画 (現像・アルバム)**: `FilmShaderImage` で GLSL フルパイプライン適用。
+
+### LUT追加手順
+
+1. `shaders/{name}.frag` を作成（既存シェーダーを参考に uniform layout は変えない）
+2. `pubspec.yaml` の `flutter.shaders:` に追加
+3. `LutType` enum に値を追加し、`.shaderAsset` / `.shaderParams` / `.colorMatrix` を実装
+4. `flutter analyze` でエラーゼロを確認
 
 将来的にこの写真エンジンは `packages/core_camera` + `packages/core_lut` として分離し、FestivalCAM・TravelCAM 等のエコシステムアプリが共用する予定。
 
@@ -166,7 +293,7 @@ shaders/film_iso800.frag
 
 ## 実装済み機能（MVP状況）
 
-最終更新: 2026-03-14 Sprint 4 EOD
+最終更新: 2026-03-15
 
 | 機能 | 状態 |
 |------|------|
@@ -197,6 +324,9 @@ shaders/film_iso800.frag
 | 図鑑コンプリート率% | ✅ 完成 |
 | レアリティ4遭遇演出（LEGENDARY オーバーレイ） | ✅ 完成 |
 | フィルムカウンターアニメーション | ✅ 完成 |
+| **GLSL シェーダー 4本** (Kodak/Fuji/Mono/Warm) | ✅ 完成（2026-03-15） |
+| **per-LUT 専用シェーダーロード** (LutType.shaderAsset) | ✅ 完成（2026-03-15） |
+| **整数 PCG hash グレイン** (粒感修正) | ✅ 完成（2026-03-15） |
 | 買い切り（¥370 Pro）ゲート処理 | ⏳ POST-RELEASE |
 | JAZAデータ拡充（beerbear-a提出待ち） | ⏳ アプリ試験動作後 |
 
@@ -211,10 +341,14 @@ shaders/film_iso800.frag
 4. `lib/core/utils/routes.dart` にルートを追加
 
 ### 新しいLUTシェーダーを追加する
-1. `shaders/{lut_name}.frag` を作成（`film_iso800.frag` をベースに）
+1. `shaders/{lut_name}.frag` を作成（既存シェーダーを参照。**uniform layout 0–18 は変えない**）
 2. `pubspec.yaml` の `flutter.shaders:` に追加
-3. `lib/features/camera/widgets/lut_selector.dart` のLUT一覧に追加
-4. 無料2種 / Pro以降 のフラグをセット
+3. `LutType` enum に値を追加
+4. `LutType.shaderAsset` に新ファイルパスを追加
+5. `LutType.shaderParams` に `FilmShaderParams` を設定
+6. `LutType.colorMatrix` にライブプレビュー用行列を設定
+7. `LutType.isPro` で無料 / Pro フラグをセット
+8. `flutter analyze` でエラーゼロを確認
 
 ### データベース変更
 - スキーマ変更は `lib/core/database/database_helper.dart` の `_onCreate` / `_onUpgrade`
@@ -345,7 +479,10 @@ Pro（¥370 買い切り）
 **Maya Ishikawa**
 - フィルムグレインは12fps（60fpsにしない。映写機の速度）
 - GLSL シェーダーと ColorFilter.matrix の使い分けを理解する
-- 静止画LUT適用は Export時（プレビューはColorFilter.matrixで代替）
+  - ライブプレビュー: プラットフォームテクスチャ → GLSL 不可 → `ColorFilter.matrix` + `_GrainPainter`
+  - 静止画（現像・アルバム）: `FilmShaderImage` で GLSL フルパイプライン
+- グレインは整数ピクセル PCG hash を使うこと（float UV / 89.3 は禁止 — 相関問題を再発させない）
+- uniform layout (float 0–18) は変えない。新シェーダーも同じ layout を使う
 - 「細部が積み重なってプロダクトになる」
 
 **Rei Suzuki**
@@ -375,7 +512,7 @@ QA・TestFlight・審査対策       → 青山 美樹
 
 ### 現在のスプリント状況
 
-最終更新: 2026-03-14
+最終更新: 2026-03-15
 
 | Sprint | 状態 | 内容 |
 |--------|------|------|
@@ -383,36 +520,32 @@ QA・TestFlight・審査対策       → 青山 美樹
 | Sprint 2 | ✅ 完了 | タグ付けUX・図鑑シルエット・レアリティ |
 | Sprint 3 | ✅ 完了 | マップピンタップ・コンタクトシート書き出し |
 | **Sprint 4** | ✅ 完了 | 透かし実装・LUT追加・Android検証・UX修正 |
-| **Sprint 5** | 🔜（Flutter完了）| グリッド・LUT強度・ライトリーク・タイマー・9:16・図鑑完成度・レア演出 |
+| **Sprint 5** | 🔄 進行中 | シェーダーエンジン完成 + UI ブラッシュアップ |
 | POST-RELEASE | ⏳ | 買い切り実装・JAZAデータ本番投入 |
 
 ---
 
-### Sprint 4 完了タスク
+### Sprint 5 完了タスク（シェーダー側 — 2026-03-15）
 
 | タスク | 担当 | 完了日 |
 |--------|------|--------|
-| `LutType.warm` 追加（ゴールデンアワーLUT） | Maya | 2026-03-14 |
-| `isPro` フラグ設計 | Maya | 2026-03-14 |
-| `WatermarkService` 実装（dart:ui Canvas合成） | Kenji | 2026-03-14 |
-| `ShareService` 透かし統合 | Kenji | 2026-03-14 |
-| LUTセレクター FREE バッジ | Kenji | 2026-03-14 |
-| UX監査（5問題特定 / 藤井空） | Sora | 2026-03-14 |
-| 動物学コードレビュー（西村晴子） | 西村晴子 | 2026-03-14 |
-| シルエット修正（red_panda耳 / okapi縞 / meerkat直立） | Rei | 2026-03-14 |
+| `film_iso800.frag` v2–v5 全書き直し（D-min・3ゾーン・樽型歪曲・per-ch halation） | Maya | 2026-03-15 |
+| `film_fuji400.frag` v1 新規（シアン床・Fuji緑・冷色ハレーション） | Maya | 2026-03-15 |
+| `film_mono_hp5.frag` v1 新規（パンクロ変換・銀塩グレイン・セレン調色） | Maya | 2026-03-15 |
+| `film_warm.frag` v1 新規（全域ゴールデン・期限切れフォグ・粗大粒子） | Maya | 2026-03-15 |
+| グレイン整数 PCG hash 修正（全4シェーダー）— 旧 float/89.3 相関問題を解消 | Maya | 2026-03-15 |
+| `LutType.shaderAsset` getter + per-LUT Map キャッシュ | Maya | 2026-03-15 |
+| `FilmShaderImage.didUpdateWidget` LUT切替時リロード対応 | Maya | 2026-03-15 |
+| `pubspec.yaml` shaders 4本登録 | Maya | 2026-03-15 |
 
----
-
-### Sprint 4 完了（Flutter側）— Sprint 5 前提条件
+### Sprint 5 残タスク（UI 側 — Codex/GPT 担当）
 
 | # | タスク | 担当 | 状態 |
 |---|--------|------|------|
-| 1 | 図鑑の空状態UI | Kenji | ✅ |
-| 2 | MapScreen FAB ラベル | Kenji | ✅ |
-| 3 | usernameProvider 接続 | Kenji | ✅ |
-| 4 | Android Exif回転修正 | Jun Kang | 🔴 Sprint 5 ブロッカー |
-| 5 | Android AGSL LUT | Jun Kang | 🟠 |
-| 6 | iOS Info.plist 日本語確認 | iOSエンジニア | 🟡 |
+| 1 | Camera / Album UI 破綻潰し | Kenji/GPT | 🔄 |
+| 2 | Android Exif 回転修正 | Jun Kang | 🔴 ブロッカー |
+| 3 | Android AGSL LUT | Jun Kang | 🟠 |
+| 4 | iOS Info.plist 日本語確認 | iOSエンジニア | 🟡 |
 
 ---
 

@@ -28,6 +28,12 @@ class CameraService {
     await _channel.invokeMethod('setFlash', {'enabled': enabled});
   }
 
+  static Future<void> setFocalLength(String focalLength) async {
+    await _channel.invokeMethod('setFocalLength', {
+      'focalLength': focalLength,
+    });
+  }
+
   /// タップフォーカス / タップ露出
   /// [x], [y] は 0.0〜1.0 の正規化座標（左上が 0,0）
   static Future<void> setFocusPoint(double x, double y) async {

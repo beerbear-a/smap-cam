@@ -7,6 +7,8 @@ import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/models/species.dart';
 import '../../core/utils/routes.dart';
+import '../../core/widgets/mock_photo.dart';
+import '../album/photo_viewer_screen.dart';
 import '../checkin/checkin_screen.dart';
 
 // ── Data classes ─────────────────────────────────────────────
@@ -39,8 +41,7 @@ class ZukanData {
 
   int get totalSpecies => allSpecies.length;
   int get metCount => metSpeciesIds.length;
-  double get completionRate =>
-      totalSpecies == 0 ? 0 : metCount / totalSpecies;
+  double get completionRate => totalSpecies == 0 ? 0 : metCount / totalSpecies;
 
   List<Species> get unmet =>
       allSpecies.where((s) => !metSpeciesIds.contains(s.speciesId)).toList();
@@ -111,16 +112,20 @@ class ZukanScreen extends ConsumerStatefulWidget {
 class _ZukanScreenState extends ConsumerState<ZukanScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late final TextEditingController _searchController;
+  String _query = '';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _searchController = TextEditingController();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -137,8 +142,10 @@ class _ZukanScreenState extends ConsumerState<ZukanScreen>
             // ヘッダー
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              child: Wrap(
+                spacing: 16,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.end,
                 children: [
                   const Text(
                     '図鑑',
@@ -156,6 +163,46 @@ class _ZukanScreenState extends ConsumerState<ZukanScreen>
                     error: (_, __) => const SizedBox.shrink(),
                   ),
                 ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) => setState(() => _query = value.trim()),
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: '動物名で探す',
+                  hintStyle: const TextStyle(
+                    color: Colors.white24,
+                    fontSize: 13,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    color: Colors.white38,
+                    size: 18,
+                  ),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white38,
+                            size: 18,
+                          ),
+                        ),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.05),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                ),
               ),
             ),
 
@@ -180,18 +227,48 @@ class _ZukanScreenState extends ConsumerState<ZukanScreen>
             // コンテンツ
             Expanded(
               child: dataAsync.when(
-                data: (data) => TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // タブ1: 出会い済み
-                    data.met.isEmpty
-                        ? _EmptyState()
-                        : _AnimalGrid(entries: data.met),
+                data: (data) {
+                  final normalizedQuery = _query.toLowerCase();
+                  final filteredMet = normalizedQuery.isEmpty
+                      ? data.met
+                      : data.met.where((entry) {
+                          final matchesSubject = entry.subject
+                              .toLowerCase()
+                              .contains(normalizedQuery);
+                          final matchesLocation = entry.sessions.any(
+                            (session) => (session.locationName ?? session.title)
+                                .toLowerCase()
+                                .contains(normalizedQuery),
+                          );
+                          return matchesSubject || matchesLocation;
+                        }).toList();
+                  final filteredUnmet = normalizedQuery.isEmpty
+                      ? data.unmet
+                      : data.unmet.where((species) {
+                          return species.nameJa
+                                  .toLowerCase()
+                                  .contains(normalizedQuery) ||
+                              species.nameEn
+                                  .toLowerCase()
+                                  .contains(normalizedQuery);
+                        }).toList();
 
-                    // タブ2: 未発見
-                    _UndiscoveredList(species: data.unmet),
-                  ],
-                ),
+                  return TabBarView(
+                    controller: _tabController,
+                    children: [
+                      data.met.isEmpty
+                          ? _EmptyState()
+                          : filteredMet.isEmpty
+                              ? const _SearchEmptyState()
+                              : _AnimalGrid(entries: filteredMet),
+                      filteredUnmet.isEmpty && normalizedQuery.isNotEmpty
+                          ? const _SearchEmptyState(
+                              message: '未発見の中には見つかりませんでした',
+                            )
+                          : _UndiscoveredList(species: filteredUnmet),
+                    ],
+                  );
+                },
                 loading: () => const Center(
                   child: CircularProgressIndicator(
                     color: Colors.white30,
@@ -294,7 +371,7 @@ class _UndiscoveredList extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: species.length,
       separatorBuilder: (_, __) =>
-          const Divider(color: Colors.white08, height: 1),
+          Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
       itemBuilder: (context, index) {
         final sp = species[index];
         return ListTile(
@@ -338,8 +415,23 @@ class _RarityIcon extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: const Center(
-        child: Text('?', style: TextStyle(color: Colors.white24, fontSize: 18)),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const MockPhotoView(monochrome: true, opacity: 0.55),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.45),
+            ),
+          ),
+          const Center(
+            child: Text(
+              '?',
+              style: TextStyle(color: Colors.white54, fontSize: 18),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -391,6 +483,15 @@ class _EmptyState extends StatelessWidget {
               painter: _GhostAnimalPainter(),
             ),
             const SizedBox(height: 32),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: const SizedBox(
+                width: 180,
+                height: 110,
+                child: MockPhotoView(opacity: 0.7),
+              ),
+            ),
+            const SizedBox(height: 24),
             const Text(
               'まだ出会いがありません',
               style: TextStyle(
@@ -431,11 +532,37 @@ class _EmptyState extends StatelessWidget {
                 ),
               ),
               child: const Text(
-                'チェックインする',
+                '今日のロールをつくる',
                 style: TextStyle(letterSpacing: 2, fontSize: 13),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchEmptyState extends StatelessWidget {
+  final String message;
+
+  const _SearchEmptyState({
+    this.message = '条件に合う動物が見つかりませんでした',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white38,
+            fontSize: 13,
+            height: 1.6,
+          ),
         ),
       ),
     );
@@ -540,16 +667,10 @@ class _AnimalCard extends StatelessWidget {
                       width: double.infinity,
                       fit: BoxFit.cover,
                     )
-                  : Container(
-                      color: Colors.grey[900],
-                      child: const Center(
-                        child: Text('🦎', style: TextStyle(fontSize: 40)),
-                      ),
-                    ),
+                  : const MockPhotoView(),
             ),
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -621,10 +742,10 @@ class _AnimalDetailScreen extends ConsumerWidget {
               ),
             ),
           ),
-          SliverToBoxAdapter(
+          const SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-              child: const Text(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text(
                 '記録した場所',
                 style: TextStyle(
                   color: Colors.white38,
@@ -639,6 +760,20 @@ class _AnimalDetailScreen extends ConsumerWidget {
               (context, index) {
                 final session = entry.sessions[index];
                 return ListTile(
+                  onTap: () async {
+                    final photos = await DatabaseHelper.getPhotosForSession(
+                      session.sessionId,
+                    );
+                    if (!context.mounted || photos.isEmpty) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PhotoViewerScreen(
+                          session: session,
+                          photos: photos,
+                        ),
+                      ),
+                    );
+                  },
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 20,
                     vertical: 4,
@@ -664,10 +799,10 @@ class _AnimalDetailScreen extends ConsumerWidget {
               childCount: entry.sessions.length,
             ),
           ),
-          SliverToBoxAdapter(
+          const SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-              child: const Text(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text(
                 '写真',
                 style: TextStyle(
                   color: Colors.white38,
@@ -690,13 +825,7 @@ class _AnimalDetailScreen extends ConsumerWidget {
                   final file = File(entry.photos[index].imagePath);
                   return file.existsSync()
                       ? Image.file(file, fit: BoxFit.cover)
-                      : Container(
-                          color: Colors.grey[900],
-                          child: const Icon(
-                            Icons.image_not_supported,
-                            color: Colors.white24,
-                          ),
-                        );
+                      : const MockPhotoView();
                 },
                 childCount: entry.photos.length,
               ),
@@ -722,6 +851,7 @@ class _StatChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: const BoxConstraints(minWidth: 72),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.06),

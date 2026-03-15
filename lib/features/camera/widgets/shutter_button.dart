@@ -28,7 +28,7 @@ class _ShutterButtonState extends State<ShutterButton>
       vsync: this,
       duration: const Duration(milliseconds: 80),
     );
-    _scale = Tween<double>(begin: 1.0, end: 0.88).animate(
+    _scale = Tween<double>(begin: 1.0, end: 0.90).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
   }
@@ -72,39 +72,62 @@ class _ShutterButtonState extends State<ShutterButton>
       onTapCancel: _onTapCancel,
       child: ScaleTransition(
         scale: _scale,
-        child: Container(
+        child: SizedBox(
           width: 80,
           height: 80,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: enabled ? Colors.white : Colors.grey.withValues(alpha: 0.4),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.6),
-              width: 3,
+          child: CustomPaint(
+            painter: _ShutterPainter(
+              enabled: enabled,
+              isCapturing: widget.isCapturing,
             ),
-            boxShadow: [
-              if (enabled)
-                BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.25),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                ),
-            ],
-          ),
-          child: widget.isCapturing
-              ? const Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      color: Colors.black,
-                      strokeWidth: 2,
+            child: widget.isCapturing
+                ? const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        color: Colors.white54,
+                        strokeWidth: 1.5,
+                      ),
                     ),
-                  ),
-                )
-              : null,
+                  )
+                : null,
+          ),
         ),
       ),
     );
   }
+}
+
+class _ShutterPainter extends CustomPainter {
+  final bool enabled;
+  final bool isCapturing;
+
+  const _ShutterPainter({required this.enabled, required this.isCapturing});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final outerRadius = size.width / 2;
+    final innerRadius = outerRadius - 8;
+
+    // 外リング（白い輪）
+    final ringPaint = Paint()
+      ..color = enabled ? Colors.white : Colors.white38
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    canvas.drawCircle(center, outerRadius - 1.5, ringPaint);
+
+    // 内側の白い塗り潰し円
+    if (!isCapturing) {
+      final fillPaint = Paint()
+        ..color = enabled ? Colors.white : Colors.white24
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(center, innerRadius - 2, fillPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ShutterPainter old) =>
+      old.enabled != enabled || old.isCapturing != isCapturing;
 }

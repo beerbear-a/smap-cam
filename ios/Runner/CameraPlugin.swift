@@ -4,6 +4,29 @@ import AVFoundation
 
 public class CameraPlugin: NSObject, FlutterPlugin {
 
+    private enum FocalPreset: String {
+        case f13
+        case f24
+        case f35
+        case f48
+        case f120
+
+        var zoomFactor: CGFloat {
+            switch self {
+            case .f13:
+                return 1.0
+            case .f24:
+                return 1.0
+            case .f35:
+                return 1.5
+            case .f48:
+                return 2.0
+            case .f120:
+                return 1.0
+            }
+        }
+    }
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
             name: "zootocam/camera",
@@ -15,6 +38,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
 
     private let registrar: FlutterPluginRegistrar
     private var captureSession: AVCaptureSession?
+    private var currentInput: AVCaptureDeviceInput?
     private var photoOutput: AVCapturePhotoOutput?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var currentDevice: AVCaptureDevice?
@@ -32,6 +56,10 @@ public class CameraPlugin: NSObject, FlutterPlugin {
     private let videoQueue = DispatchQueue(
         label: "zootocam.video",
         qos: .userInteractive
+    )
+    private let sessionQueue = DispatchQueue(
+        label: "zootocam.camera.session",
+        qos: .userInitiated
     )
 
     init(registrar: FlutterPluginRegistrar) {
@@ -54,6 +82,8 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             setFlash(call: call, result: result)
         case "setFocusPoint":
             setFocusPoint(call: call, result: result)
+        case "setFocalLength":
+            setFocalLength(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -62,19 +92,10 @@ public class CameraPlugin: NSObject, FlutterPlugin {
     // MARK: - Initialize
 
     private func initializeCamera(result: @escaping FlutterResult) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        sessionQueue.async { [weak self] in
             guard let self = self else { return }
 
-            // Prefer dual-wide camera, fall back to wide angle
-            let device = AVCaptureDevice.default(
-                .builtInDualWideCamera,
-                for: .video,
-                position: .back
-            ) ?? AVCaptureDevice.default(
-                .builtInWideAngleCamera,
-                for: .video,
-                position: .back
-            )
+            let device = self.bestDevice(for: .f35)
 
             guard let device = device else {
                 DispatchQueue.main.async {
@@ -90,22 +111,6 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             self.currentDevice = device
 
             do {
-                // Continuous AF / AE / AWB
-                try device.lockForConfiguration()
-                if device.isFocusModeSupported(.continuousAutoFocus) {
-                    device.focusMode = .continuousAutoFocus
-                }
-                if device.isExposureModeSupported(.continuousAutoExposure) {
-                    device.exposureMode = .continuousAutoExposure
-                }
-                if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                    device.whiteBalanceMode = .continuousAutoWhiteBalance
-                }
-                if device.isLowLightBoostSupported {
-                    device.automaticallyEnablesLowLightBoostWhenAvailable = true
-                }
-                device.unlockForConfiguration()
-
                 let session = AVCaptureSession()
                 session.beginConfiguration()
 
@@ -119,6 +124,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
                 let input = try AVCaptureDeviceInput(device: device)
                 if session.canAddInput(input) {
                     session.addInput(input)
+                    self.currentInput = input
                 }
 
                 // Photo output
@@ -159,6 +165,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
 
                 session.commitConfiguration()
                 self.captureSession = session
+                try self.applyDefaultConfiguration(to: device, preset: .f35)
 
                 // Register texture
                 let textureId = self.registrar.textures().register(self)
@@ -189,6 +196,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             guard let self = self else { return }
             self.captureSession?.stopRunning()
             self.captureSession = nil
+            self.currentInput = nil
             self.photoOutput = nil
             self.videoOutput = nil
             self.currentDevice = nil
@@ -300,6 +308,137 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             result(nil)
         } catch {
             result(FlutterError(code: "FOCUS_ERROR", message: error.localizedDescription, details: nil))
+        }
+    }
+
+    // MARK: - Focal Length
+
+    private func setFocalLength(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let focalLength = args["focalLength"] as? String,
+              let preset = FocalPreset(rawValue: focalLength) else {
+            result(FlutterError(code: "INVALID_ARGS", message: "focalLength が必要です", details: nil))
+            return
+        }
+
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                try self.applyFocalPreset(preset)
+                DispatchQueue.main.async {
+                    result(nil)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "FOCAL_LENGTH_ERROR",
+                        message: error.localizedDescription,
+                        details: nil
+                    ))
+                }
+            }
+        }
+    }
+
+    private func applyFocalPreset(_ preset: FocalPreset) throws {
+        guard let session = captureSession else {
+            throw NSError(
+                domain: "CameraPlugin",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "カメラが準備できていません"]
+            )
+        }
+
+        let targetDevice = bestDevice(for: preset) ?? currentDevice
+        guard let targetDevice = targetDevice else {
+            throw NSError(
+                domain: "CameraPlugin",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "対象レンズが見つかりません"]
+            )
+        }
+
+        if currentDevice?.uniqueID != targetDevice.uniqueID {
+            let newInput = try AVCaptureDeviceInput(device: targetDevice)
+            session.beginConfiguration()
+            if let currentInput = currentInput {
+                session.removeInput(currentInput)
+            }
+            guard session.canAddInput(newInput) else {
+                if let currentInput = currentInput, session.canAddInput(currentInput) {
+                    session.addInput(currentInput)
+                }
+                session.commitConfiguration()
+                throw NSError(
+                    domain: "CameraPlugin",
+                    code: -3,
+                    userInfo: [NSLocalizedDescriptionKey: "レンズ切り替えに失敗しました"]
+                )
+            }
+            session.addInput(newInput)
+            currentInput = newInput
+            currentDevice = targetDevice
+
+            if let connection = videoOutput?.connection(with: .video) {
+                let orientation = currentVideoOrientation()
+                if connection.isVideoOrientationSupported {
+                    connection.videoOrientation = orientation
+                }
+                if connection.isVideoStabilizationSupported {
+                    connection.preferredVideoStabilizationMode = .auto
+                }
+            }
+            session.commitConfiguration()
+        }
+
+        try applyDefaultConfiguration(to: targetDevice, preset: preset)
+    }
+
+    private func applyDefaultConfiguration(
+        to device: AVCaptureDevice,
+        preset: FocalPreset
+    ) throws {
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            device.focusMode = .continuousAutoFocus
+        }
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            device.exposureMode = .continuousAutoExposure
+        }
+        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+            device.whiteBalanceMode = .continuousAutoWhiteBalance
+        }
+        if device.isLowLightBoostSupported {
+            device.automaticallyEnablesLowLightBoostWhenAvailable = true
+        }
+
+        device.cancelVideoZoomRamp()
+        let zoomFactor = max(
+            device.minAvailableVideoZoomFactor,
+            min(preset.zoomFactor, device.maxAvailableVideoZoomFactor)
+        )
+        if abs(device.videoZoomFactor - zoomFactor) > 0.01 {
+            device.ramp(toVideoZoomFactor: zoomFactor, withRate: 18.0)
+        } else {
+            device.videoZoomFactor = zoomFactor
+        }
+    }
+
+    private func bestDevice(for preset: FocalPreset) -> AVCaptureDevice? {
+        switch preset {
+        case .f13:
+            return AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        case .f120:
+            return AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        case .f24, .f35, .f48:
+            return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back)
         }
     }
 

@@ -3,21 +3,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database_helper.dart';
+import '../../core/navigation/main_tab_provider.dart';
 import '../../core/models/photo.dart';
 import '../../core/models/species.dart';
-import '../../core/utils/routes.dart';
-import '../map/map_screen.dart';
+import '../../core/widgets/mock_photo.dart';
 import '../settings/settings_screen.dart';
 import '../share/share_service.dart';
 
 class JournalScreen extends ConsumerStatefulWidget {
   final String sessionId;
   final List<Photo> photos;
+  final int initialIndex;
 
   const JournalScreen({
     super.key,
     required this.sessionId,
     required this.photos,
+    this.initialIndex = 0,
   });
 
   @override
@@ -26,9 +28,11 @@ class JournalScreen extends ConsumerStatefulWidget {
 
 class _JournalScreenState extends ConsumerState<JournalScreen> {
   late List<_JournalEntry> _entries;
+  late final PageController _pageController;
   final _sessionMemoController = TextEditingController();
   bool _isSaving = false;
   int _currentIndex = 0;
+  String? _sessionTheme;
 
   // レアリティ4 遭遇演出
   bool _showRareOverlay = false;
@@ -37,6 +41,8 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   @override
   void initState() {
     super.initState();
+    _currentIndex = widget.initialIndex.clamp(0, widget.photos.length - 1);
+    _pageController = PageController(initialPage: _currentIndex);
     _entries = widget.photos
         .map((p) => _JournalEntry(
               photo: p,
@@ -44,10 +50,19 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
               memoController: TextEditingController(text: p.memo ?? ''),
             ))
         .toList();
+    _loadSessionMemo();
+  }
+
+  Future<void> _loadSessionMemo() async {
+    final session = await DatabaseHelper.getFilmSession(widget.sessionId);
+    if (!mounted || session == null) return;
+    _sessionMemoController.text = session.memo ?? '';
+    setState(() => _sessionTheme = session.theme);
   }
 
   @override
   void dispose() {
+    _pageController.dispose();
     _sessionMemoController.dispose();
     for (final e in _entries) {
       e.subjectController.dispose();
@@ -70,11 +85,10 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
       Species? rareFind;
       if (subjectTexts.isNotEmpty) {
         final allSpecies = await DatabaseHelper.getAllSpecies();
-        final rarity4 =
-            allSpecies.where((s) => s.rarity == 4).toList();
+        final rarity4 = allSpecies.where((s) => s.rarity == 4).toList();
         for (final sp in rarity4) {
-          if (subjectTexts.any((t) =>
-              t.contains(sp.nameJa) || t.contains(sp.nameEn))) {
+          if (subjectTexts
+              .any((t) => t.contains(sp.nameJa) || t.contains(sp.nameEn))) {
             rareFind = sp;
             break;
           }
@@ -92,13 +106,12 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
               : entry.memoController.text.trim(),
         );
       }
-      if (_sessionMemoController.text.trim().isNotEmpty) {
-        final session = await DatabaseHelper.getFilmSession(widget.sessionId);
-        if (session != null) {
-          await DatabaseHelper.updateFilmSession(
-            session.copyWith(memo: _sessionMemoController.text.trim()),
-          );
-        }
+      final session = await DatabaseHelper.getFilmSession(widget.sessionId);
+      if (session != null) {
+        final memo = _sessionMemoController.text.trim();
+        await DatabaseHelper.updateFilmSession(
+          session.copyWith(memo: memo.isEmpty ? null : memo),
+        );
       }
 
       setState(() => _isSaving = false);
@@ -112,10 +125,10 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
         });
         // 演出後に自動遷移
         Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) _navigateToMap();
+          if (mounted) _navigateToAlbum();
         });
       } else if (mounted) {
-        _navigateToMap();
+        _navigateToAlbum();
       }
     } catch (e) {
       setState(() => _isSaving = false);
@@ -130,11 +143,9 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     }
   }
 
-  void _navigateToMap() {
-    Navigator.of(context).pushAndRemoveUntil(
-      DarkFadeRoute(page: const MapScreen()),
-      (route) => false,
-    );
+  void _navigateToAlbum() {
+    ref.read(mainTabIndexProvider.notifier).state = 1;
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   @override
@@ -176,24 +187,104 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
 
               // 写真
               SizedBox(
-                height: 240,
+                height: 268,
                 child: PageView.builder(
+                  controller: _pageController,
                   itemCount: _entries.length,
                   onPageChanged: (i) => setState(() => _currentIndex = i),
                   itemBuilder: (context, index) {
                     final p = _entries[index].photo;
                     final file = File(p.imagePath);
                     return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: file.existsSync()
-                          ? Image.file(file, fit: BoxFit.cover)
-                          : Container(
-                              color: Colors.grey[900],
-                              child: const Icon(
-                                Icons.image_not_supported,
-                                color: Colors.white24,
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            file.existsSync()
+                                ? Image.file(file, fit: BoxFit.cover)
+                                : const MockPhotoView(),
+                            Positioned(
+                              left: 14,
+                              right: 14,
+                              bottom: 14,
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.45),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      'CUT ${index + 1}',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 10,
+                                        letterSpacing: 1.8,
+                                      ),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    _formatTimestamp(p.timestamp),
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              SizedBox(
+                height: 68,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _entries.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final p = _entries[index].photo;
+                    final file = File(p.imagePath);
+                    final selected = index == _currentIndex;
+                    return GestureDetector(
+                      onTap: () {
+                        _pageController.animateToPage(
+                          index,
+                          duration: const Duration(milliseconds: 240),
+                          curve: Curves.easeOut,
+                        );
+                        setState(() => _currentIndex = index);
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: 68,
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected ? Colors.white70 : Colors.white12,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: file.existsSync()
+                              ? Image.file(file, fit: BoxFit.cover)
+                              : const MockPhotoView(),
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -202,39 +293,113 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
               // フォーム
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        '動物',
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                          letterSpacing: 2,
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.06),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      _buildTextField(
-                        controller: entry.subjectController,
-                        hint: 'レッサーパンダ',
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'メモ',
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                          letterSpacing: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'この1枚のアルバムメモ',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '何が写っていたか、あとで思い出したいことを残せます。',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.46),
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            const Text(
+                              '写っている動物',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            _buildTextField(
+                              controller: entry.subjectController,
+                              hint: 'レッサーパンダ',
+                            ),
+                            const SizedBox(height: 18),
+                            const Text(
+                              'このカットのメモ',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            _buildTextField(
+                              controller: entry.memoController,
+                              hint: '寝顔がやさしかった',
+                              maxLines: 4,
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      _buildTextField(
-                        controller: entry.memoController,
-                        hint: '木の上で寝ていた',
-                        maxLines: 4,
                       ),
                       const SizedBox(height: 32),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.03),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.06),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '現像ノート',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                              ),
+                            ),
+                            if (_sessionTheme?.isNotEmpty == true) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'テーマ: $_sessionTheme',
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            _buildTextField(
+                              controller: _sessionMemoController,
+                              hint: 'フィルムを見返したときに思い出したいこと',
+                              maxLines: 3,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
 
                       // シェアボタン
                       if (_currentIndex < _entries.length)
@@ -271,7 +436,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
           if (_showRareOverlay)
             _RareEncounterOverlay(
               speciesName: _rareSpeciesName ?? '',
-              onDismiss: _navigateToMap,
+              onDismiss: _navigateToAlbum,
             ),
         ],
       ),
@@ -306,6 +471,12 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
         ),
       ),
     );
+  }
+
+  String _formatTimestamp(DateTime value) {
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 }
 
@@ -384,8 +555,7 @@ class _RareEncounterOverlayState extends State<_RareEncounterOverlay>
                           child: Icon(
                             Icons.star,
                             color: Colors.amber.withValues(
-                              alpha:
-                                  (_controller.value > i * 0.15) ? 1.0 : 0.0,
+                              alpha: (_controller.value > i * 0.15) ? 1.0 : 0.0,
                             ),
                             size: 28,
                           ),

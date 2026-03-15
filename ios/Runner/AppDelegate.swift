@@ -1,15 +1,16 @@
 import UIKit
 import Flutter
 
-@UIApplicationMain
+@main
 @objc class AppDelegate: FlutterAppDelegate {
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        let controller = window?.rootViewController as! FlutterViewController
         let registrar = self.registrar(forPlugin: "CameraPlugin")!
         CameraPlugin.register(with: registrar)
+        let photoLibraryRegistrar = self.registrar(forPlugin: "PhotoLibraryPlugin")!
+        PhotoLibraryPlugin.register(with: photoLibraryRegistrar)
 
         GeneratedPluginRegistrant.register(with: self)
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)

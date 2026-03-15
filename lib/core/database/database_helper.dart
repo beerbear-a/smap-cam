@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../mock/mock_photo_library.dart';
 import '../models/encounter.dart';
 import '../models/film_session.dart';
 import '../models/photo.dart';
@@ -9,7 +10,7 @@ import 'seed_data.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'zootocam.db';
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 7;
 
   static const tableFilmSessions = 'film_sessions';
   static const tablePhotos = 'photos';
@@ -41,10 +42,39 @@ class DatabaseHelper {
     await _seedData(db);
   }
 
-  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  static Future<void> _onUpgrade(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
     if (oldVersion < 2) {
       await _createAnimalTables(db);
       await _seedData(db);
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        "ALTER TABLE $tableFilmSessions ADD COLUMN capture_mode TEXT DEFAULT 'film'",
+      );
+    }
+    if (oldVersion < 4) {
+      await db.execute(
+        "ALTER TABLE $tableFilmSessions ADD COLUMN theme TEXT",
+      );
+    }
+    if (oldVersion < 5) {
+      await db.execute(
+        "ALTER TABLE $tableFilmSessions ADD COLUMN index_sheet_path TEXT",
+      );
+    }
+    if (oldVersion < 6) {
+      await db.execute(
+        "ALTER TABLE $tableFilmSessions ADD COLUMN last_restored_at INTEGER",
+      );
+    }
+    if (oldVersion < 7) {
+      await db.execute(
+        "ALTER TABLE $tableFilmSessions ADD COLUMN develop_ready_at INTEGER",
+      );
     }
   }
 
@@ -58,8 +88,13 @@ class DatabaseHelper {
         lng           REAL,
         zoo_id        TEXT,
         date          INTEGER NOT NULL,
+        theme         TEXT,
+        index_sheet_path TEXT,
+        develop_ready_at INTEGER,
+        last_restored_at INTEGER,
         memo          TEXT,
         status        TEXT DEFAULT 'shooting',
+        capture_mode  TEXT DEFAULT 'film',
         photo_count   INTEGER DEFAULT 0
       )
     ''');
@@ -119,7 +154,8 @@ class DatabaseHelper {
       batch.insert(tableZoos, zoo, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     for (final sp in seedSpecies) {
-      batch.insert(tableSpecies, sp, conflictAlgorithm: ConflictAlgorithm.ignore);
+      batch.insert(tableSpecies, sp,
+          conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     await batch.commit(noResult: true);
   }
@@ -145,6 +181,26 @@ class DatabaseHelper {
     );
   }
 
+  static Future<void> deleteFilmSession(String sessionId) async {
+    final db = await database;
+    await db.delete(
+      tableEncounters,
+      where:
+          'photo_id IN (SELECT photo_id FROM $tablePhotos WHERE session_id = ?)',
+      whereArgs: [sessionId],
+    );
+    await db.delete(
+      tablePhotos,
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+    );
+    await db.delete(
+      tableFilmSessions,
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
   static Future<List<FilmSession>> getAllFilmSessions() async {
     final db = await database;
     final maps = await db.query(
@@ -165,6 +221,17 @@ class DatabaseHelper {
     return FilmSession.fromMap(maps.first);
   }
 
+  static Future<List<FilmSession>> getFilmSessionsForZoo(String zooId) async {
+    final db = await database;
+    final maps = await db.query(
+      tableFilmSessions,
+      where: 'zoo_id = ?',
+      whereArgs: [zooId],
+      orderBy: 'date DESC',
+    );
+    return maps.map(FilmSession.fromMap).toList();
+  }
+
   static Future<FilmSession?> getActiveSession() async {
     final db = await database;
     final maps = await db.query(
@@ -175,6 +242,34 @@ class DatabaseHelper {
     );
     if (maps.isEmpty) return null;
     return FilmSession.fromMap(maps.first);
+  }
+
+  static Future<List<FilmSession>> getShelvedFilmSessions() async {
+    final db = await database;
+    final maps = await db.query(
+      tableFilmSessions,
+      where: "status = 'shelved'",
+      orderBy: 'date DESC',
+    );
+    return maps.map(FilmSession.fromMap).toList();
+  }
+
+  static Future<bool> hasFilmSessionOnDay(DateTime date) async {
+    final db = await database;
+    final dayStart = DateTime(date.year, date.month, date.day);
+    final nextDay = dayStart.add(const Duration(days: 1));
+    final maps = await db.query(
+      tableFilmSessions,
+      columns: ['session_id'],
+      where: 'capture_mode = ? AND date >= ? AND date < ?',
+      whereArgs: [
+        CaptureMode.film.name,
+        dayStart.millisecondsSinceEpoch,
+        nextDay.millisecondsSinceEpoch,
+      ],
+      limit: 1,
+    );
+    return maps.isNotEmpty;
   }
 
   // ── Photo ────────────────────────────────────────────────
@@ -217,6 +312,87 @@ class DatabaseHelper {
     );
   }
 
+  static Future<void> ensureMockAlbumSeeded() async {
+    final db = await database;
+    final photoCount = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM $tablePhotos'),
+        ) ??
+        0;
+    if (photoCount > 0) return;
+
+    final mockPaths = availableMockPhotoPaths();
+    if (mockPaths.isEmpty) return;
+
+    final now = DateTime.now();
+    final demoSessions = [
+      (
+        session: FilmSession(
+          sessionId: 'demo_roll_ueno',
+          title: '上野動物園',
+          locationName: '上野動物園',
+          lat: 35.7161,
+          lng: 139.7716,
+          zooId: 'zoo_ueno',
+          date: now.subtract(const Duration(days: 6)),
+          theme: '春の光とレッサーパンダ',
+          memo: '春の午後、ゆっくり見返したい一本。',
+          status: FilmStatus.developed,
+          captureMode: CaptureMode.film,
+        ),
+        speciesIds: ['sp_red_panda', 'sp_giant_panda', 'sp_otter'],
+        subjects: ['レッサーパンダ', 'ジャイアントパンダ', 'コツメカワウソ'],
+        memos: ['木陰でひと休み', 'ガラス越しでも目が合った', '水辺でじゃれ合っていた'],
+        photos: mockPaths.take(3).toList(),
+      ),
+      (
+        session: FilmSession(
+          sessionId: 'demo_roll_zoorasia',
+          title: 'ズーラシア',
+          locationName: 'よこはま動物園 ズーラシア',
+          lat: 35.5003,
+          lng: 139.5222,
+          zooId: 'zoo_yokohama',
+          date: now.subtract(const Duration(days: 12)),
+          theme: '夕方の大きな動き',
+          memo: '歩いた距離ごと残っている夕方のロール。',
+          status: FilmStatus.developed,
+          captureMode: CaptureMode.film,
+        ),
+        speciesIds: ['sp_polar_bear', 'sp_tiger'],
+        subjects: ['ホッキョクグマ', 'トラ'],
+        memos: ['白い光がきれいに回っていた', '遠くにいても存在感が強かった'],
+        photos: mockPaths.skip(3).take(2).toList(),
+      ),
+    ];
+
+    for (final demo in demoSessions) {
+      await insertFilmSession(demo.session);
+      for (var i = 0; i < demo.photos.length; i++) {
+        final photoId = '${demo.session.sessionId}_photo_$i';
+        final timestamp = demo.session.date.add(Duration(minutes: i * 18));
+        final photo = Photo(
+          photoId: photoId,
+          sessionId: demo.session.sessionId,
+          imagePath: demo.photos[i],
+          timestamp: timestamp,
+          subject: demo.subjects[i],
+          memo: demo.memos[i],
+        );
+        await insertPhoto(photo);
+        await insertEncounter(
+          Encounter(
+            encounterId: '${demo.session.sessionId}_encounter_$i',
+            photoId: photoId,
+            speciesId: demo.speciesIds[i],
+            zooId: demo.session.zooId,
+            memo: demo.memos[i],
+            createdAt: timestamp,
+          ),
+        );
+      }
+    }
+  }
+
   // ── Zoo ──────────────────────────────────────────────────
 
   static Future<List<Zoo>> getAllZoos() async {
@@ -242,11 +418,9 @@ class DatabaseHelper {
     double radiusKm = 5.0,
   }) async {
     final allZoos = await getAllZoos();
-    return allZoos
-        .where((z) => z.distanceTo(lat, lng) <= radiusKm)
-        .toList()
-      ..sort((a, b) =>
-          a.distanceTo(lat, lng).compareTo(b.distanceTo(lat, lng)));
+    return allZoos.where((z) => z.distanceTo(lat, lng) <= radiusKm).toList()
+      ..sort(
+          (a, b) => a.distanceTo(lat, lng).compareTo(b.distanceTo(lat, lng)));
   }
 
   // ── Species ──────────────────────────────────────────────
@@ -270,6 +444,40 @@ class DatabaseHelper {
       limit: 20,
     );
     return maps.map(Species.fromMap).toList();
+  }
+
+  static Future<Species?> getSpecies(String speciesId) async {
+    final db = await database;
+    final maps = await db.query(
+      tableSpecies,
+      where: 'species_id = ?',
+      whereArgs: [speciesId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return Species.fromMap(maps.first);
+  }
+
+  static Future<List<Map<String, dynamic>>> getZooEncounterHighlights(
+    String zooId,
+  ) async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT
+        e.species_id,
+        s.name_ja,
+        s.name_en,
+        s.rarity,
+        s.asset_key,
+        COUNT(*) AS encounter_count,
+        MIN(e.created_at) AS first_at,
+        MAX(e.created_at) AS last_at
+      FROM $tableEncounters e
+      INNER JOIN $tableSpecies s ON e.species_id = s.species_id
+      WHERE e.zoo_id = ?
+      GROUP BY e.species_id, s.name_ja, s.name_en, s.rarity, s.asset_key
+      ORDER BY encounter_count DESC, last_at DESC
+    ''', [zooId]);
   }
 
   // ── Encounter ────────────────────────────────────────────

@@ -61,7 +61,7 @@ class WatermarkService {
       imgW,
       gradientHeight,
     );
-    final gradient = const LinearGradient(
+    const gradient = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [Colors.transparent, Color(0xCC000000)],

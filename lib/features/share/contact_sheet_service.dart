@@ -13,6 +13,9 @@ enum ContactSheetFormat {
   /// 正方形グリッド（デフォルト）
   square,
 
+  /// 現像後のインデックスプリント
+  indexSheet,
+
   /// 9:16 縦長 — Instagram Story / ショート動画カバー対応
   story,
 }
@@ -39,10 +42,19 @@ class ContactSheetService {
     required FilmSession session,
     required List<Photo> photos,
     ContactSheetFormat format = ContactSheetFormat.square,
+    bool persist = false,
   }) {
-    return format == ContactSheetFormat.story
-        ? _generateStory(session: session, photos: photos)
-        : _generateSquare(session: session, photos: photos);
+    switch (format) {
+      case ContactSheetFormat.square:
+        return _generateSquare(
+            session: session, photos: photos, persist: persist);
+      case ContactSheetFormat.indexSheet:
+        return _generateIndexSheet(
+            session: session, photos: photos, persist: persist);
+      case ContactSheetFormat.story:
+        return _generateStory(
+            session: session, photos: photos, persist: persist);
+    }
   }
 
   // ── Square ───────────────────────────────────────────────────
@@ -50,6 +62,7 @@ class ContactSheetService {
   static Future<String> _generateSquare({
     required FilmSession session,
     required List<Photo> photos,
+    required bool persist,
   }) async {
     final validPhotos =
         photos.where((p) => File(p.imagePath).existsSync()).toList();
@@ -59,8 +72,8 @@ class ContactSheetService {
         await Future.wait(validPhotos.map((p) => _loadImage(p.imagePath)));
 
     final rows = (images.length / _cols).ceil();
-    final contentW = _cols * _photoSize + (_cols - 1) * _gap;
-    final totalWidth = contentW + _sidePad * 2;
+    const contentW = _cols * _photoSize + (_cols - 1) * _gap;
+    const totalWidth = contentW + _sidePad * 2;
     final photoAreaH = rows * _photoSize + (rows - 1) * _gap;
     final totalHeight = _sprocketH + photoAreaH + _sprocketH + _metaH;
 
@@ -70,7 +83,8 @@ class ContactSheetService {
       ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
     );
 
-    _fillBackground(canvas, totalWidth, totalHeight, const ui.Color(0xFF080808));
+    _fillBackground(
+        canvas, totalWidth, totalHeight, const ui.Color(0xFF080808));
     _drawSprocketZone(canvas, 0, totalWidth, _sprocketH);
 
     for (int i = 0; i < images.length; i++) {
@@ -112,14 +126,140 @@ class ContactSheetService {
       width: totalWidth.toInt(),
       height: totalHeight.toInt(),
       suffix: 'contact_${session.sessionId}',
+      persist: persist,
     );
   }
 
   // ── Story (9:16) ─────────────────────────────────────────────
 
+  static Future<String> _generateIndexSheet({
+    required FilmSession session,
+    required List<Photo> photos,
+    required bool persist,
+  }) async {
+    final validPhotos =
+        photos.where((p) => File(p.imagePath).existsSync()).toList();
+    if (validPhotos.isEmpty) throw Exception('No photos available');
+
+    const cols = 5;
+    const thumbW = 146.0;
+    const thumbH = 108.0;
+    const gap = 10.0;
+    const outerPad = 38.0;
+    const topPad = 44.0;
+    const bottomPad = 56.0;
+    const headerH = 78.0;
+    const footerH = 58.0;
+
+    final images =
+        await Future.wait(validPhotos.map((p) => _loadImage(p.imagePath)));
+    final rows = (images.length / cols).ceil();
+    const contentW = cols * thumbW + (cols - 1) * gap;
+    final contentH = rows * thumbH + (rows - 1) * gap;
+    const totalWidth = contentW + outerPad * 2;
+    final totalHeight = topPad + headerH + contentH + footerH + bottomPad;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(
+      recorder,
+      ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
+    );
+
+    _fillBackground(
+      canvas,
+      totalWidth,
+      totalHeight,
+      const ui.Color(0xFFF7F2E8),
+    );
+
+    _drawText(
+      canvas,
+      'INDEX PRINT',
+      outerPad,
+      topPad - 6,
+      20,
+      const ui.Color(0xFF2B2B2B),
+      maxWidth: totalWidth * 0.5,
+    );
+
+    final location = session.locationName ?? session.title;
+    final meta = [
+      if (session.theme?.isNotEmpty == true) session.theme!,
+      location,
+      _formatDate(session.date),
+      '${validPhotos.length} CUTS',
+    ].join('   /   ');
+    _drawText(
+      canvas,
+      meta,
+      outerPad,
+      topPad + 28,
+      12,
+      const ui.Color(0xFF5C5852),
+      maxWidth: totalWidth - outerPad * 2,
+    );
+
+    for (int i = 0; i < images.length; i++) {
+      final col = i % cols;
+      final row = i ~/ cols;
+      final x = outerPad + col * (thumbW + gap);
+      final y = topPad + headerH + row * (thumbH + gap);
+      final frame = ui.Rect.fromLTWH(x, y, thumbW, thumbH);
+
+      canvas.drawRect(
+        frame.inflate(2),
+        ui.Paint()..color = const ui.Color(0xFFEEE6DA),
+      );
+      canvas.drawRect(
+        frame,
+        ui.Paint()..color = const ui.Color(0xFF0F0F10),
+      );
+
+      final photoRect = ui.Rect.fromLTWH(
+        x + 3,
+        y + 3,
+        thumbW - 6,
+        thumbH - 18,
+      );
+      canvas.save();
+      canvas.clipRect(photoRect);
+      _drawImageCover(canvas, images[i], photoRect);
+      canvas.restore();
+
+      _drawText(
+        canvas,
+        (i + 1).toString().padLeft(2, '0'),
+        x + 6,
+        y + thumbH - 15,
+        10,
+        const ui.Color(0xFFD8D1C4),
+        maxWidth: 26,
+      );
+    }
+
+    _drawText(
+      canvas,
+      'ZOOTOCAM',
+      totalWidth - outerPad - 92,
+      totalHeight - bottomPad + 4,
+      12,
+      const ui.Color(0xFF7E786E),
+      maxWidth: 92,
+    );
+
+    return _saveCanvas(
+      recorder: recorder,
+      width: totalWidth.toInt(),
+      height: totalHeight.toInt(),
+      suffix: 'index_${session.sessionId}',
+      persist: persist,
+    );
+  }
+
   static Future<String> _generateStory({
     required FilmSession session,
     required List<Photo> photos,
+    required bool persist,
   }) async {
     final validPhotos =
         photos.where((p) => File(p.imagePath).existsSync()).toList();
@@ -137,18 +277,19 @@ class ContactSheetService {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(
       recorder,
-      ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
+      const ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
     );
 
     // 背景
-    _fillBackground(canvas, totalWidth, totalHeight, const ui.Color(0xFF060606));
+    _fillBackground(
+        canvas, totalWidth, totalHeight, const ui.Color(0xFF060606));
 
     // 上スプロケット
     _drawSprocketZone(canvas, 0, totalWidth, _storySprocketH);
 
     // 写真縦並び（中央寄せ）
-    final photoAreaH = images.length * _storyPhotoH +
-        (images.length - 1) * _storyPhotoGap;
+    final photoAreaH =
+        images.length * _storyPhotoH + (images.length - 1) * _storyPhotoGap;
     final photoStartY =
         (_storyHeight - _storySprocketH * 2 - _storyMetaH - photoAreaH) / 2 +
             _storySprocketH;
@@ -180,11 +321,11 @@ class ContactSheetService {
     }
 
     // 下スプロケット
-    final bottomSprocketY = totalHeight - _storySprocketH - _storyMetaH;
+    const bottomSprocketY = totalHeight - _storySprocketH - _storyMetaH;
     _drawSprocketZone(canvas, bottomSprocketY, totalWidth, _storySprocketH);
 
     // メタデータ
-    final metaY = bottomSprocketY + _storySprocketH;
+    const metaY = bottomSprocketY + _storySprocketH;
     final location = session.locationName ?? session.title;
     final date = _formatDate(session.date);
     _drawText(
@@ -211,6 +352,7 @@ class ContactSheetService {
       width: totalWidth.toInt(),
       height: totalHeight.toInt(),
       suffix: 'story_${session.sessionId}',
+      persist: persist,
     );
   }
 
@@ -278,8 +420,7 @@ class ContactSheetService {
   }
 
   static void _drawPhotoOverlay(ui.Canvas canvas, ui.Rect dst) {
-    final gradRect =
-        ui.Rect.fromLTWH(dst.left, dst.bottom - 50, dst.width, 50);
+    final gradRect = ui.Rect.fromLTWH(dst.left, dst.bottom - 50, dst.width, 50);
     final gradient = ui.Gradient.linear(
       ui.Offset(dst.left, dst.bottom - 50),
       ui.Offset(dst.left, dst.bottom),
@@ -326,14 +467,21 @@ class ContactSheetService {
     required int width,
     required int height,
     required String suffix,
+    required bool persist,
   }) async {
     final picture = recorder.endRecording();
     final img = await picture.toImage(width, height);
     final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
     img.dispose();
 
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/zoosmap_$suffix.png');
+    final dir = persist
+        ? await getApplicationDocumentsDirectory()
+        : await getTemporaryDirectory();
+    final baseDir = persist
+        ? Directory('${dir.path}/zoosmap/index_sheets')
+        : Directory(dir.path);
+    await baseDir.create(recursive: true);
+    final file = File('${baseDir.path}/zoosmap_$suffix.png');
     await file.writeAsBytes(byteData!.buffer.asUint8List());
     return file.path;
   }

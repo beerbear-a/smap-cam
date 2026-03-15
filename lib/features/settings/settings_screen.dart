@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/config/pro_access.dart';
+import '../../core/database/database_helper.dart';
+import '../../core/models/film_session.dart';
+import '../../core/navigation/main_tab_provider.dart';
+import '../camera/camera_notifier.dart';
 import '../share/watermark_service.dart';
 
 // ── Username Provider ────────────────────────────────────────
 
-final usernameProvider =
-    StateNotifierProvider<UsernameNotifier, String>((ref) {
+final usernameProvider = StateNotifierProvider<UsernameNotifier, String>((ref) {
   return UsernameNotifier();
 });
 
@@ -35,6 +39,37 @@ final watermarkPositionProvider =
   return WatermarkPositionNotifier();
 });
 
+final navigationLabelsVisibleProvider =
+    StateNotifierProvider<NavigationLabelsVisibleNotifier, bool>((ref) {
+  return NavigationLabelsVisibleNotifier();
+});
+
+final addonTabsVisibilityProvider =
+    StateNotifierProvider<AddonTabsVisibilityNotifier, AddonTabsVisibility>(
+        (ref) {
+  return AddonTabsVisibilityNotifier();
+});
+
+class AddonTabsVisibility {
+  final bool showMap;
+  final bool showZukan;
+
+  const AddonTabsVisibility({
+    this.showMap = true,
+    this.showZukan = false,
+  });
+
+  AddonTabsVisibility copyWith({
+    bool? showMap,
+    bool? showZukan,
+  }) {
+    return AddonTabsVisibility(
+      showMap: showMap ?? this.showMap,
+      showZukan: showZukan ?? this.showZukan,
+    );
+  }
+}
+
 class WatermarkPositionNotifier extends StateNotifier<WatermarkPosition> {
   WatermarkPositionNotifier() : super(WatermarkPosition.bottomRight) {
     _load();
@@ -43,8 +78,8 @@ class WatermarkPositionNotifier extends StateNotifier<WatermarkPosition> {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final index = prefs.getInt('watermark_position') ?? 0;
-    state = WatermarkPosition.values[
-        index.clamp(0, WatermarkPosition.values.length - 1)];
+    state = WatermarkPosition
+        .values[index.clamp(0, WatermarkPosition.values.length - 1)];
   }
 
   Future<void> setPosition(WatermarkPosition position) async {
@@ -52,6 +87,50 @@ class WatermarkPositionNotifier extends StateNotifier<WatermarkPosition> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(
         'watermark_position', WatermarkPosition.values.indexOf(position));
+  }
+}
+
+class NavigationLabelsVisibleNotifier extends StateNotifier<bool> {
+  NavigationLabelsVisibleNotifier() : super(true) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool('navigation_labels_visible') ?? true;
+  }
+
+  Future<void> setVisible(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('navigation_labels_visible', value);
+  }
+}
+
+class AddonTabsVisibilityNotifier extends StateNotifier<AddonTabsVisibility> {
+  AddonTabsVisibilityNotifier() : super(const AddonTabsVisibility()) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_zukan_tab', false);
+    state = AddonTabsVisibility(
+      showMap: prefs.getBool('show_map_tab') ?? true,
+      showZukan: false,
+    );
+  }
+
+  Future<void> setMapVisible(bool value) async {
+    state = state.copyWith(showMap: value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_map_tab', value);
+  }
+
+  Future<void> setZukanVisible(bool value) async {
+    state = state.copyWith(showZukan: value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_zukan_tab', value);
   }
 }
 
@@ -83,6 +162,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final activeSession = ref.watch(
+      cameraProvider.select((state) => state.activeSession),
+    );
+    final addonTabs = ref.watch(addonTabsVisibilityProvider);
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -100,11 +184,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+              child: _SettingsOverviewCard(
+                activeSession: activeSession,
+                addonTabs: addonTabs,
+                onOpenCamera: () {
+                  ref.read(mainTabIndexProvider.notifier).state = 0;
+                },
+              ),
+            ),
 
             const Divider(color: Colors.white12, height: 1),
 
             // プロフィール
-            _SectionHeader(title: 'プロフィール'),
+            const _SectionHeader(title: 'プロフィール'),
             _SettingsTile(
               title: 'ユーザー名',
               subtitle: 'シェア時の透かしに使用',
@@ -114,11 +208,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const Divider(color: Colors.white12, height: 1),
 
             // カメラ
-            _SectionHeader(title: 'カメラ'),
-            _SettingsTile(
+            const _SectionHeader(title: 'カメラ'),
+            const _SettingsTile(
               title: 'フィルム枚数',
               subtitle: '1本あたりの撮影枚数',
-              trailing: const Text(
+              trailing: Text(
                 '27 枚',
                 style: TextStyle(color: Colors.white38, fontSize: 14),
               ),
@@ -126,26 +220,86 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const Divider(color: Colors.white12, height: 1),
 
+            const _SectionHeader(title: 'Pro 機能'),
+            _SettingsTile(
+              title: 'Proを有効化',
+              subtitle: '現像の待ち時間をスキップできるようになります',
+              trailing: Switch(
+                value: ref.watch(proAccessProvider),
+                onChanged: (value) =>
+                    ref.read(proAccessProvider.notifier).setEnabled(value),
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
+
+            const Divider(color: Colors.white12, height: 1),
+
+            const _SectionHeader(title: '表示'),
+            _SettingsTile(
+              title: 'タブ名を表示',
+              subtitle: 'ナビゲーションバーにラベルを表示します',
+              trailing: Switch(
+                value: ref.watch(navigationLabelsVisibleProvider),
+                onChanged: (value) => ref
+                    .read(navigationLabelsVisibleProvider.notifier)
+                    .setVisible(value),
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
+            _SettingsTile(
+              title: 'マップタブを表示',
+              subtitle: '非表示にするとカメラとアルバムだけになります',
+              trailing: Switch(
+                value: ref.watch(addonTabsVisibilityProvider).showMap,
+                onChanged: (value) => ref
+                    .read(addonTabsVisibilityProvider.notifier)
+                    .setMapVisible(value),
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
+            _SettingsTile(
+              title: '図鑑タブを表示',
+              subtitle: '設定からいつでも表示 / 非表示を切り替えられます',
+              trailing: Switch(
+                value: ref.watch(addonTabsVisibilityProvider).showZukan,
+                onChanged: (value) => ref
+                    .read(addonTabsVisibilityProvider.notifier)
+                    .setZukanVisible(value),
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
+
+            const Divider(color: Colors.white12, height: 1),
+
+            const _SectionHeader(title: 'フィルムの復元'),
+            const _ShelvedFilmRestoreTile(),
+
+            const Divider(color: Colors.white12, height: 1),
+
             // 透かし
-            _SectionHeader(title: '透かし'),
-            _WatermarkPositionSelector(),
-            _WatermarkPreview(),
+            const _SectionHeader(title: '透かし'),
+            const _WatermarkPositionSelector(),
+            const _WatermarkPreview(),
 
             const Divider(color: Colors.white12, height: 1),
 
             // アプリ情報
-            _SectionHeader(title: 'アプリ情報'),
-            _SettingsTile(
+            const _SectionHeader(title: 'アプリ情報'),
+            const _SettingsTile(
               title: 'バージョン',
-              trailing: const Text(
+              trailing: Text(
                 '1.0.0',
                 style: TextStyle(color: Colors.white38, fontSize: 14),
               ),
             ),
-            _SettingsTile(
+            const _SettingsTile(
               title: 'アプリ名',
-              trailing: const Text(
-                'ZootoCam',
+              trailing: Text(
+                'ZOOSMAP',
                 style: TextStyle(color: Colors.white38, fontSize: 14),
               ),
             ),
@@ -183,52 +337,172 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+class _SettingsOverviewCard extends StatelessWidget {
+  final FilmSession? activeSession;
+  final AddonTabsVisibility addonTabs;
+  final VoidCallback onOpenCamera;
+
+  const _SettingsOverviewCard({
+    required this.activeSession,
+    required this.addonTabs,
+    required this.onOpenCamera,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sessionLabel = activeSession == null
+        ? 'いまはロール未開始です'
+        : activeSession!.isFilmMode
+            ? 'フィルム撮影中: ${activeSession!.title}'
+            : 'インスタント記録中: ${activeSession!.title}';
+    final addonLabel = [
+      if (addonTabs.showMap) 'マップ',
+      if (addonTabs.showZukan) '図鑑',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'NOW',
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 10,
+              letterSpacing: 2,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            sessionLabel,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w300,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            addonLabel.isEmpty
+                ? 'カメラとアルバムのみ表示しています'
+                : '表示中: ${addonLabel.join(' / ')}',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.54),
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton(
+              onPressed: onOpenCamera,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white70,
+                side: const BorderSide(color: Colors.white24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+              ),
+              child: const Text(
+                'カメラへ戻る',
+                style: TextStyle(letterSpacing: 1.2),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SettingsTile extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? trailing;
-  final VoidCallback? onTap;
 
   const _SettingsTile({
     required this.title,
     this.subtitle,
     this.trailing,
-    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(color: Colors.white, fontSize: 15),
-                  ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle!,
-                      style: const TextStyle(
-                        color: Colors.white38,
-                        fontSize: 12,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useStackedLayout = constraints.maxWidth < 360 && trailing != null;
+
+        return InkWell(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            child: useStackedLayout
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SettingsTileLabel(title: title, subtitle: subtitle),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: trailing!,
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (trailing != null) trailing!,
-          ],
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: _SettingsTileLabel(
+                          title: title,
+                          subtitle: subtitle,
+                        ),
+                      ),
+                      if (trailing != null) trailing!,
+                    ],
+                  ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SettingsTileLabel extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+
+  const _SettingsTileLabel({
+    required this.title,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(color: Colors.white, fontSize: 15),
         ),
-      ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            subtitle!,
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -264,6 +538,8 @@ class _UsernameField extends ConsumerWidget {
 // ── 透かし位置選択 ────────────────────────────────────────────
 
 class _WatermarkPositionSelector extends ConsumerWidget {
+  const _WatermarkPositionSelector();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final current = ref.watch(watermarkPositionProvider);
@@ -299,8 +575,7 @@ class _WatermarkPositionSelector extends ConsumerWidget {
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color:
-                            isSelected ? Colors.white54 : Colors.white12,
+                        color: isSelected ? Colors.white54 : Colors.white12,
                         width: isSelected ? 1.0 : 0.5,
                       ),
                     ),
@@ -308,8 +583,7 @@ class _WatermarkPositionSelector extends ConsumerWidget {
                       pos.label,
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color:
-                            isSelected ? Colors.white : Colors.white38,
+                        color: isSelected ? Colors.white : Colors.white38,
                         fontSize: 12,
                         letterSpacing: 1,
                       ),
@@ -328,14 +602,15 @@ class _WatermarkPositionSelector extends ConsumerWidget {
 // ── 透かしプレビュー ──────────────────────────────────────────
 
 class _WatermarkPreview extends ConsumerWidget {
+  const _WatermarkPreview();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final username = ref.watch(usernameProvider);
     final position = ref.watch(watermarkPositionProvider);
 
-    final label = username.isNotEmpty
-        ? '@$username · ZootoCam'
-        : '@username · ZootoCam';
+    final label =
+        username.isNotEmpty ? '@$username · ZOOSMAP' : '@username · ZOOSMAP';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -376,41 +651,24 @@ class _WatermarkPreview extends ConsumerWidget {
                   ),
                   Positioned(
                     bottom: 10,
-                    left: position == WatermarkPosition.bottomLeft
-                        ? 12
-                        : position == WatermarkPosition.bottomCenter
-                            ? 0
-                            : null,
-                    right: position == WatermarkPosition.bottomRight
-                        ? 12
-                        : position == WatermarkPosition.bottomCenter
-                            ? 0
-                            : null,
-                    child: position == WatermarkPosition.bottomCenter
-                        ? Center(
-                            child: Text(
-                              label,
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 11,
-                                letterSpacing: 1,
-                                shadows: [
-                                  Shadow(color: Colors.black, blurRadius: 4),
-                                ],
-                              ),
-                            ),
-                          )
-                        : Text(
-                            label,
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                              letterSpacing: 1,
-                              shadows: [
-                                Shadow(color: Colors.black, blurRadius: 4),
-                              ],
-                            ),
-                          ),
+                    left: position == WatermarkPosition.bottomRight ? null : 12,
+                    right: position == WatermarkPosition.bottomLeft ? null : 12,
+                    child: Text(
+                      label,
+                      textAlign: position == WatermarkPosition.bottomCenter
+                          ? TextAlign.center
+                          : position == WatermarkPosition.bottomRight
+                              ? TextAlign.right
+                              : TextAlign.left,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                        letterSpacing: 1,
+                        shadows: [
+                          Shadow(color: Colors.black, blurRadius: 4),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -420,4 +678,86 @@ class _WatermarkPreview extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _ShelvedFilmRestoreTile extends ConsumerWidget {
+  const _ShelvedFilmRestoreTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(
+      cameraProvider.select(
+        (state) => '${state.activeSession?.sessionId}:${state.error}',
+      ),
+    );
+
+    return FutureBuilder<List<FilmSession>>(
+      future: DatabaseHelper.getShelvedFilmSessions(),
+      builder: (context, snapshot) {
+        final sessions = snapshot.data ?? const <FilmSession>[];
+        if (sessions.isEmpty) {
+          return const _SettingsTile(
+            title: '退避中のフィルムはありません',
+            subtitle: 'フィルムからインスタントへ切り替えたロールがここに並びます。復元は1本ごとに7日に1回だけです。',
+          );
+        }
+
+        return Column(
+          children: sessions.map((session) {
+            final canRestore = session.canRestoreNow();
+            final nextRestore = session.nextRestoreAvailableAt;
+            final previousRestore = session.lastRestoredAt;
+            final subtitle = canRestore
+                ? session.theme?.isNotEmpty == true
+                    ? 'テーマ: ${session.theme} · いま復元できます'
+                    : 'このフィルムはいま復元できます'
+                : previousRestore == null
+                    ? '前回の復元から7日後に再び戻せます'
+                    : '前回の復元: ${_formatRestoreDate(previousRestore)} · 次回: ${_formatRestoreDate(nextRestore!)}';
+
+            return _SettingsTile(
+              title: session.title,
+              subtitle: subtitle,
+              trailing: FilledButton(
+                onPressed: canRestore
+                    ? () async {
+                        final restored = await ref
+                            .read(cameraProvider.notifier)
+                            .restoreShelvedFilm(session.sessionId);
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              restored
+                                  ? 'フィルムを復元しました'
+                                  : nextRestore != null
+                                      ? 'このフィルムは ${_formatRestoreDate(nextRestore)} まで復元できません'
+                                      : 'このフィルムはまだ復元できません',
+                            ),
+                          ),
+                        );
+                      }
+                    : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black,
+                  disabledBackgroundColor: Colors.white10,
+                  disabledForegroundColor: Colors.white24,
+                ),
+                child: Text(canRestore ? '復元' : '待機中'),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+}
+
+String _formatRestoreDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$month/$day $hour:$minute';
 }

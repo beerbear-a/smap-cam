@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
+import '../../core/models/zoo.dart';
 import '../../core/utils/routes.dart';
 import '../checkin/checkin_screen.dart';
 import '../settings/settings_screen.dart';
@@ -58,7 +59,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           iconSize: 1.5,
           textField: '● ${session.title}',
           textSize: 12,
-          textColor: Colors.white.value,
+          textColor: Colors.white.toARGB32(),
           textOffset: [0, 1.5],
         );
         final annotation = await _annotationManager!.create(options);
@@ -74,11 +75,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Future<void> _onPinTapped(PointAnnotation annotation) async {
     final session = _annotationSessionMap[annotation.id];
     if (session == null) return;
-    final photos =
-        await DatabaseHelper.getPhotosForSession(session.sessionId);
-    if (mounted) {
-      _showSessionDetail(context, session, photos);
-    }
+    final photos = await DatabaseHelper.getPhotosForSession(session.sessionId);
+    final zoo = session.zooId == null
+        ? null
+        : await DatabaseHelper.getZoo(session.zooId!);
+    final highlights = session.zooId == null
+        ? const <Map<String, dynamic>>[]
+        : await DatabaseHelper.getZooEncounterHighlights(session.zooId!);
+    final zooSessions = session.zooId == null
+        ? <FilmSession>[session]
+        : await DatabaseHelper.getFilmSessionsForZoo(session.zooId!);
+    if (!mounted) return;
+    _showZooStorySheet(
+      context,
+      session: session,
+      photos: photos,
+      zoo: zoo,
+      highlights: highlights,
+      zooSessions: zooSessions,
+    );
   }
 
   @override
@@ -110,17 +125,34 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'ZootoCam',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w200,
-                          letterSpacing: 4,
-                          shadows: [
-                            Shadow(color: Colors.black54, blurRadius: 8),
-                          ],
-                        ),
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'MAP',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w200,
+                              letterSpacing: 4,
+                              shadows: [
+                                Shadow(color: Colors.black54, blurRadius: 8),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '現像したロールを地図でたどる',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              letterSpacing: 1.2,
+                              shadows: [
+                                Shadow(color: Colors.black54, blurRadius: 8),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                       IconButton(
                         onPressed: () => _showSessionList(context),
@@ -128,9 +160,46 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           Icons.photo_library_outlined,
                           color: Colors.white,
                         ),
+                        tooltip: '訪問したロールを見る',
                       ),
                     ],
                   ),
+                ),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final sessionsAsync = ref.watch(mapProvider);
+                    return sessionsAsync.when(
+                      data: (sessions) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 20),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.58),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.12),
+                            ),
+                          ),
+                          child: Text(
+                            sessions.isEmpty
+                                ? 'まだ地図に残るロールがありません'
+                                : '${sessions.length} 本のロールが地図に残っています',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              letterSpacing: 1.1,
+                            ),
+                          ),
+                        ),
+                      ),
+                      loading: () => const SizedBox.shrink(),
+                      error: (_, __) => const SizedBox.shrink(),
+                    );
+                  },
                 ),
               ],
             ),
@@ -138,7 +207,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ],
       ),
 
-      // 新規フィルムボタン（チェックイン → フィルム作成）
+      // 新規フィルムボタン（ロール作成）
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.of(context).push(
@@ -149,7 +218,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         foregroundColor: Colors.black,
         icon: const Icon(Icons.add, size: 20),
         label: const Text(
-          '動物園へ',
+          '撮影を始める',
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -160,7 +229,37 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  void _showZooStorySheet(
+    BuildContext context, {
+    required FilmSession session,
+    required List<Photo> photos,
+    required Zoo? zoo,
+    required List<Map<String, dynamic>> highlights,
+    required List<FilmSession> zooSessions,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.grey[950],
+      builder: (ctx) => _ZooStorySheet(
+        session: session,
+        photos: photos,
+        zoo: zoo,
+        highlights: highlights,
+        zooSessions: zooSessions,
+        onOpenSession: (selected) async {
+          Navigator.pop(ctx);
+          final selectedPhotos =
+              await DatabaseHelper.getPhotosForSession(selected.sessionId);
+          if (!context.mounted) return;
+          _showSessionDetail(context, selected, selectedPhotos);
+        },
+      ),
+    );
+  }
+
   void _showSessionList(BuildContext context) {
+    final parentContext = context;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.grey[950],
@@ -169,9 +268,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           Navigator.pop(ctx);
           final photos =
               await DatabaseHelper.getPhotosForSession(session.sessionId);
-          if (mounted) {
-            _showSessionDetail(context, session, photos);
-          }
+          if (!parentContext.mounted) return;
+          _showSessionDetail(parentContext, session, photos);
         },
       ),
     );
@@ -223,42 +321,367 @@ class _SessionListSheet extends ConsumerWidget {
           return const Center(child: CircularProgressIndicator());
         }
         final sessions = snap.data ?? [];
-        return Column(
-          mainAxisSize: MainAxisSize.min,
+        return SafeArea(
+          top: false,
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.72,
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    '訪問したロール',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      letterSpacing: 3,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: sessions.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'まだ地図に残るロールがありません',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 13,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: sessions.length,
+                          itemBuilder: (context, index) {
+                            final s = sessions[index];
+                            return ListTile(
+                              onTap: () => onSessionTap(s),
+                              title: Text(
+                                s.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              subtitle: Text(
+                                '${s.photoCount} 枚 · ${_mapStatusLabel(s.status)}',
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              trailing: const Icon(
+                                Icons.chevron_right,
+                                color: Colors.white38,
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ZooStorySheet extends StatelessWidget {
+  final FilmSession session;
+  final List<Photo> photos;
+  final Zoo? zoo;
+  final List<Map<String, dynamic>> highlights;
+  final List<FilmSession> zooSessions;
+  final Future<void> Function(FilmSession session) onOpenSession;
+
+  const _ZooStorySheet({
+    required this.session,
+    required this.photos,
+    required this.zoo,
+    required this.highlights,
+    required this.zooSessions,
+    required this.onOpenSession,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = zoo?.name ?? session.locationName ?? session.title;
+    final subtitle = [
+      if (zoo != null) zoo!.prefecture,
+      '${zooSessions.length} 本のロール',
+    ].join(' · ');
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.62,
+      minChildSize: 0.42,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, scrollController) {
+        return ListView(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                '思い出',
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.w300,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 12,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'この場所で出会った動物',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    highlights.isEmpty
+                        ? 'まだ動物タグはありませんが、ロールは地図に残っています。'
+                        : '地図から見返すと、その場所で会った動物のまとまりが立ち上がります。',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.54),
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
+                  ),
+                  if (highlights.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: highlights.take(8).map((highlight) {
+                        return _SpeciesHighlightChip(highlight: highlight);
+                      }).toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'この場所のロール',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+            const SizedBox(height: 10),
+            ...zooSessions.take(6).map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _ZooSessionTile(
+                      session: item,
+                      selected: item.sessionId == session.sessionId,
+                      onTap: () => onOpenSession(item),
+                    ),
+                  ),
+                ),
+            if (photos.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text(
+                '最新のロールから',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  letterSpacing: 3,
+                  color: Colors.white70,
+                  fontSize: 12,
+                  letterSpacing: 1.1,
                 ),
               ),
-            ),
-            ...sessions.map(
-              (s) => ListTile(
-                onTap: () => onSessionTap(s),
-                title: Text(
-                  s.title,
-                  style: const TextStyle(color: Colors.white),
-                ),
-                subtitle: Text(
-                  '${s.photoCount} 枚 · ${s.status.name}',
-                  style:
-                      const TextStyle(color: Colors.white38, fontSize: 12),
-                ),
-                trailing: const Icon(
-                  Icons.chevron_right,
-                  color: Colors.white38,
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 90,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: photos.length.clamp(0, 8),
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final photo = photos[index];
+                    final file = File(photo.imagePath);
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: 78,
+                        child: file.existsSync()
+                            ? Image.file(file, fit: BoxFit.cover)
+                            : Container(
+                                color: Colors.white10,
+                                alignment: Alignment.center,
+                                child: const Icon(
+                                  Icons.image_outlined,
+                                  color: Colors.white24,
+                                ),
+                              ),
+                      ),
+                    );
+                  },
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
+            ],
           ],
         );
       },
+    );
+  }
+}
+
+class _SpeciesHighlightChip extends StatelessWidget {
+  final Map<String, dynamic> highlight;
+
+  const _SpeciesHighlightChip({required this.highlight});
+
+  @override
+  Widget build(BuildContext context) {
+    final count = (highlight['encounter_count'] as int?) ?? 0;
+    final rarity = (highlight['rarity'] as int?) ?? 1;
+    final rarityLabel = switch (rarity) {
+      4 => 'RARE',
+      3 => 'UNCOMMON',
+      2 => 'SEEN',
+      _ => 'FOUND',
+    };
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            highlight['name_ja'] as String? ?? '動物',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            '$count 回 · $rarityLabel',
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 11,
+              letterSpacing: 0.9,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ZooSessionTile extends StatelessWidget {
+  final FilmSession session;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ZooSessionTile({
+    required this.session,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? Colors.white.withValues(alpha: 0.07)
+          : Colors.white.withValues(alpha: 0.03),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      session.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_mapFormatDate(session.date)} · ${session.photoCount} 枚',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                      ),
+                    ),
+                    if (session.theme?.isNotEmpty == true) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        session.theme!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.chevron_right,
+                color: selected ? Colors.white70 : Colors.white30,
+                size: selected ? 18 : 20,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -367,8 +790,7 @@ class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
               ),
             ),
 
-            if (widget.session.memo != null &&
-                widget.session.memo!.isNotEmpty)
+            if (widget.session.memo != null && widget.session.memo!.isNotEmpty)
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -384,13 +806,11 @@ class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
 
             // ── フィルム書き出しボタン ─────────────────────
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed:
-                      _isGeneratingSheet ? null : _exportContactSheet,
+                  onPressed: _isGeneratingSheet ? null : _exportContactSheet,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white70,
                     side: const BorderSide(color: Colors.white24),
@@ -405,7 +825,7 @@ class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
                             color: Colors.white38,
                           ),
                         )
-                      : const Icon(Icons.film_filter_outlined, size: 18),
+                      : const Icon(Icons.photo_filter_outlined, size: 18),
                   label: Text(
                     _isGeneratingSheet ? '生成中...' : 'フィルムで書き出す',
                     style: const TextStyle(
@@ -422,8 +842,7 @@ class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
               child: GridView.builder(
                 controller: scroll,
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
                   crossAxisSpacing: 2,
                   mainAxisSpacing: 2,
@@ -449,4 +868,23 @@ class _SessionDetailSheetState extends ConsumerState<_SessionDetailSheet> {
       },
     );
   }
+}
+
+String _mapStatusLabel(FilmStatus status) {
+  switch (status) {
+    case FilmStatus.shooting:
+      return '撮影中';
+    case FilmStatus.shelved:
+      return '退避中';
+    case FilmStatus.developing:
+      return '現像待ち';
+    case FilmStatus.developed:
+      return '現像済み';
+  }
+}
+
+String _mapFormatDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}.$month.$day';
 }

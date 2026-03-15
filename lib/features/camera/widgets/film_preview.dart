@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
@@ -25,13 +26,13 @@ enum LutType {
   String get subtitle {
     switch (this) {
       case LutType.natural:
-        return 'Gold 200';
+        return 'やわらかな暖色';
       case LutType.warm:
-        return 'Golden Hour';
+        return '黄金色の夕暮れ';
       case LutType.fuji:
-        return 'Superia';
+        return '澄んだ鮮やか';
       case LutType.mono:
-        return 'HP5';
+        return '銀塩モノクローム';
     }
   }
 
@@ -47,65 +48,230 @@ enum LutType {
     }
   }
 
-  /// GLSL-style color matrix (20 values: 5×4 row-major for ColorFilter.matrix)
+  // ── ライブプレビュー用 ColorFilter.matrix ────────────────────────────────
+  //
+  // NOTE: GLSLシェーダーはプラットフォームテクスチャに適用不可のため、
+  //       ライブカメラプレビューは ColorFilter.matrix で近似する。
+  //       静止画（現像・アルバム）は FilmShaderImage (GLSL) を使用。
+  //
+  // Matrix: [R_r, R_g, R_b, R_a, R_bias,  G_r ...  B_r ...]
+  //   出力 R' = R_r*R + R_g*G + R_b*B + R_a*A + R_bias/255
+  //   bias は 0-255 スケール。正値 = フロア持ち上げ（シャドウリフト）
+
   List<double> get colorMatrix {
     switch (this) {
-      // ── Kodak Gold 200: 暖色・シャドウ持ち上げ・低コントラスト ──
+      // ── 写ルんです ISO800 / Kodak Gold 200 ─────────────────────────────
+      // 特性: 暖色・シャドウ持ち上げ・blue圧縮・ミルキーハイライト
       case LutType.natural:
         return [
-          1.10, 0.05, -0.02, 0, 8,
-          0.02, 0.98, 0.00, 0, 3,
-          -0.03, 0.00, 0.88, 0, -6,
+          1.08, 0.04, -0.01, 0, 14, // R': 赤ブースト + 緑クロス + 暖色
+          0.01, 0.96, 0.02, 0, 5, // G': ニュートラル
+          -0.02, 0.00, 0.83, 0, -14, // B': blue圧縮（写ルんです最大の特徴）
           0, 0, 0, 1, 0,
         ];
-      // ── Warm Golden Hour: 強い赤/黄・青大幅カット・夕焼け感 ──
+      // ── ゴールデンアワー ─────────────────────────────────────────────────
       case LutType.warm:
         return [
-          1.20, 0.08, -0.05, 0, 20,
-          0.04, 1.02, 0.00, 0, 10,
-          -0.08, 0.00, 0.78, 0, -18,
-          0, 0, 0, 1, 0,
+          1.16,
+          0.07,
+          -0.03,
+          0,
+          24,
+          0.02,
+          0.97,
+          0.01,
+          0,
+          10,
+          -0.06,
+          0.00,
+          0.76,
+          0,
+          -22,
+          0,
+          0,
+          0,
+          1,
+          0,
         ];
-      // ── Fuji Superia: クール・高彩度・シアンシャドウ ──
+      // ── Fuji Superia 400/800 ─────────────────────────────────────────────
+      // 特性: クール・高彩度・シアン影
       case LutType.fuji:
         return [
-          0.95, -0.02, 0.00, 0, -2,
-          0.00, 1.05, 0.03, 0, 4,
-          0.04, 0.04, 1.08, 0, 6,
-          0, 0, 0, 1, 0,
+          0.94,
+          -0.02,
+          0.01,
+          0,
+          -4,
+          0.00,
+          1.06,
+          0.04,
+          0,
+          5,
+          0.04,
+          0.04,
+          1.08,
+          0,
+          7,
+          0,
+          0,
+          0,
+          1,
+          0,
         ];
-      // ── Ilford HP5: モノクロ・骨太グレイン感 ──
+      // ── Ilford HP5 Plus ──────────────────────────────────────────────────
+      // パンクロマティック変換（緑高感度）
       case LutType.mono:
         return [
-          0.299, 0.587, 0.114, 0, 0,
-          0.299, 0.587, 0.114, 0, 0,
-          0.299, 0.587, 0.114, 0, 0,
-          0, 0, 0, 1, 0,
+          0.215,
+          0.652,
+          0.133,
+          0,
+          0,
+          0.215,
+          0.652,
+          0.133,
+          0,
+          0,
+          0.215,
+          0.652,
+          0.133,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
         ];
     }
   }
 
-  /// ビネットの強度
+  /// GLSL シェーダー用パラメータ（静止画現像・アルバム用）
+  FilmShaderParams get shaderParams {
+    switch (this) {
+      case LutType.natural:
+        return const FilmShaderParams(
+          warmth: 0.85,
+          saturation: 0.92,
+          shadowLift: 0.55,
+          highlightRolloff: 0.75,
+          grainAmount: 0.85,
+          vignetteStrength: 0.75,
+          halationStrength: 0.65,
+          softness: 0.55,
+          chromaticAberration: 0.60,
+          milkyHighlights: 0.80,
+          contrast: -0.05,
+          blueCrush: 0.18,
+          halationWarmth: 0.75,
+          grainSize: 2.0,
+        );
+      case LutType.warm:
+        return const FilmShaderParams(
+          warmth: 1.0,
+          saturation: 0.90,
+          shadowLift: 0.50,
+          highlightRolloff: 0.80,
+          grainAmount: 0.75,
+          vignetteStrength: 0.80,
+          halationStrength: 0.85,
+          softness: 0.60,
+          chromaticAberration: 0.55,
+          milkyHighlights: 0.90,
+          contrast: -0.10,
+          blueCrush: 0.25,
+          halationWarmth: 1.0,
+          grainSize: 2.0,
+        );
+      case LutType.fuji:
+        return const FilmShaderParams(
+          warmth: 0.20,
+          saturation: 1.10,
+          shadowLift: 0.35,
+          highlightRolloff: 0.60,
+          grainAmount: 0.65,
+          vignetteStrength: 0.55,
+          halationStrength: 0.30,
+          softness: 0.35,
+          chromaticAberration: 0.35,
+          milkyHighlights: 0.40,
+          contrast: 0.10,
+          blueCrush: 0.02,
+          halationWarmth: 0.20,
+          grainSize: 1.5,
+        );
+      case LutType.mono:
+        return const FilmShaderParams(
+          warmth: 0.0,
+          saturation: 0.0,
+          shadowLift: 0.45,
+          highlightRolloff: 0.70,
+          grainAmount: 1.00,
+          vignetteStrength: 0.85,
+          halationStrength: 0.40,
+          softness: 0.50,
+          chromaticAberration: 0.0,
+          milkyHighlights: 0.60,
+          contrast: 0.15,
+          blueCrush: 0.0,
+          halationWarmth: 0.0,
+          grainSize: 1.8,
+        );
+    }
+  }
+
+  /// 静止画用 GLSL シェーダーアセットパス
+  /// LUT ごとに専用シェーダーを持つことで、乳剤特性の差を正確に再現する。
+  String get shaderAsset {
+    switch (this) {
+      case LutType.natural:
+        return 'shaders/film_iso800.frag'; // 写ルんです QuickSnap ISO800
+      case LutType.warm:
+        return 'shaders/film_warm.frag';   // Kodak Gold / 期限切れフィルム
+      case LutType.fuji:
+        return 'shaders/film_fuji400.frag'; // Fujifilm Superia 400
+      case LutType.mono:
+        return 'shaders/film_mono_hp5.frag'; // Ilford HP5 Plus 400
+    }
+  }
+
+  /// ビネットの強度（ライブプレビュー用 CustomPainter）
   double get vignetteStrength {
     switch (this) {
       case LutType.natural:
-        return 0.45;
+        return 0.52;
       case LutType.warm:
-        return 0.50;
+        return 0.58;
       case LutType.fuji:
-        return 0.35;
+        return 0.38;
       case LutType.mono:
-        return 0.65;
+        return 0.68;
     }
   }
 }
 
 // Identity matrix for LUT intensity interpolation
 const _kIdentityMatrix = <double>[
-  1, 0, 0, 0, 0,
-  0, 1, 0, 0, 0,
-  0, 0, 1, 0, 0,
-  0, 0, 0, 1, 0,
+  1,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
 ];
 
 List<double> _interpolateMatrix(List<double> lut, double t) {
@@ -148,6 +314,7 @@ extension LightLeakLabel on LightLeakStrength {
 }
 
 // ── FilmPreviewWidget ────────────────────────────────────────
+// ライブカメラプレビュー用（プラットフォームテクスチャ → ColorFilter.matrix）
 
 class FilmPreviewWidget extends StatefulWidget {
   final int textureId;
@@ -180,7 +347,7 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
   @override
   void initState() {
     super.initState();
-    // Grain animates at ~12fps (film-like, not digital-smooth)
+    // Grain animates at ~12fps (映写機の速度感 — 60fpsにしない)
     _grainController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 83),
@@ -205,41 +372,33 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Raw camera texture
-          Texture(textureId: widget.textureId),
-
-          // 2. Color grade (intensity-interpolated)
+          // 1. Color grade (intensity-interpolated) — raw texture is always
+          //    covered by this layer, so we render only one Texture instance.
           ColorFiltered(
             colorFilter: ColorFilter.matrix(matrix),
             child: Texture(textureId: widget.textureId),
           ),
 
-          // 3. Optical lens softness
-          BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 0.3, sigmaY: 0.3),
-            child: const SizedBox.expand(),
-          ),
-
-          // 4. Vignette
+          // 2. Vignette (楕円形・プラスチックレンズ)
           CustomPaint(
             painter: _VignettePainter(
-              strength:
-                  widget.lutType.vignetteStrength * widget.lutIntensity,
+              strength: widget.lutType.vignetteStrength * widget.lutIntensity,
             ),
           ),
 
-          // 5. Animated film grain
+          // 3. Animated film grain (12fps, ISO800 粒子)
           AnimatedBuilder(
             animation: _grainController,
             builder: (_, __) => CustomPaint(
               painter: _GrainPainter(
                 frame: (_grainController.value * 12).floor(),
                 lutType: widget.lutType,
+                intensity: widget.lutIntensity,
               ),
             ),
           ),
 
-          // 6. Light leak
+          // 4. Light leak
           if (widget.lightLeak != LightLeakStrength.none)
             IgnorePointer(
               child: CustomPaint(
@@ -247,15 +406,13 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
               ),
             ),
 
-          // 7. Grid overlay
+          // 5. Grid overlay
           if (widget.showGrid)
             const IgnorePointer(
-              child: CustomPaint(
-                painter: _GridPainter(),
-              ),
+              child: CustomPaint(painter: _GridPainter()),
             ),
 
-          // 8. Focus indicator (injected from parent)
+          // 6. Focus indicator (injected from parent)
           if (widget.focusIndicator != null) widget.focusIndicator!,
         ],
       ),
@@ -264,6 +421,7 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
 }
 
 // ── Vignette Painter ─────────────────────────────────────────
+// 楕円形ビネット: プラスチックレンズの周辺減光
 
 class _VignettePainter extends CustomPainter {
   final double strength;
@@ -278,12 +436,20 @@ class _VignettePainter extends CustomPainter {
       radius: 1.0,
       colors: [
         Colors.transparent,
-        Colors.black.withValues(alpha: strength * 0.5),
-        Colors.black.withValues(alpha: strength),
+        Colors.black.withValues(alpha: strength * 0.45),
+        Colors.black.withValues(alpha: strength * 0.92),
       ],
-      stops: const [0.40, 0.72, 1.0],
+      stops: const [0.38, 0.68, 1.0],
     );
+    // 楕円化: 縦を 88% に縮小してプラスチックレンズ形状に
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    canvas.save();
+    canvas.translate(cx, cy);
+    canvas.scale(1.0, 0.88);
+    canvas.translate(-cx, -cy);
     canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
+    canvas.restore();
   }
 
   @override
@@ -291,54 +457,75 @@ class _VignettePainter extends CustomPainter {
 }
 
 // ── Grain Painter ────────────────────────────────────────────
+// ISO800 銀塩粒子: グリッドっぽさを避けた微細ポイント分布
 
 class _GrainPainter extends CustomPainter {
   final int frame;
   final LutType lutType;
+  final double intensity;
 
-  const _GrainPainter({required this.frame, required this.lutType});
+  const _GrainPainter({
+    required this.frame,
+    required this.lutType,
+    this.intensity = 1.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    const blockSize = 3.0;
-    final grainStrength = lutType == LutType.mono ? 0.10 : 0.055;
+    final baseSigma = switch (lutType) {
+      LutType.mono => 0.092,
+      LutType.warm => 0.065,
+      LutType.fuji => 0.055,
+      LutType.natural => 0.075,
+    };
+    final grainSigma = baseSigma * intensity;
+    final paint = Paint()
+      ..style = PaintingStyle.fill
+      ..strokeCap = StrokeCap.round;
 
-    final paint = Paint()..style = PaintingStyle.fill;
+    const step = 3.0;
+    for (double x = 0; x < size.width; x += step) {
+      for (double y = 0; y < size.height; y += step) {
+        final hash = _pcgHash(x.toInt(), y.toInt(), frame);
+        final density = (hash & 0xFF) / 255.0;
+        if (density > 0.42) continue;
 
-    for (double x = 0; x < size.width; x += blockSize) {
-      for (double y = 0; y < size.height; y += blockSize) {
-        final hash = _hash(x.toInt(), y.toInt(), frame);
-        final t = hash & 0xFF;
+        final h2 = ((hash >> 8) & 0xFF) / 255.0;
+        final h3 = ((hash >> 16) & 0xFF) / 255.0;
+        final h4 = ((hash >> 24) & 0xFF) / 255.0;
 
-        if (t > 160) continue;
-
-        final alpha = (t / 255.0) * grainStrength;
-        final isLight = (hash >> 8) & 1 == 1;
+        final jitterX = (h2 - 0.5) * 2.0;
+        final jitterY = (h3 - 0.5) * 2.0;
+        final alpha = ((h2 + h3) * 0.5) * grainSigma * 0.55;
+        final radius = 0.35 + h4 * 0.55;
+        final isLight = h4 > 0.55;
 
         paint.color = isLight
-            ? Colors.white.withValues(alpha: alpha)
-            : Colors.black.withValues(alpha: alpha * 0.6);
+            ? Colors.white.withValues(alpha: alpha.clamp(0.0, 0.06))
+            : Colors.black.withValues(alpha: (alpha * 0.75).clamp(0.0, 0.05));
 
-        canvas.drawRect(
-          Rect.fromLTWH(x, y, blockSize, blockSize),
+        canvas.drawCircle(
+          Offset(x + jitterX, y + jitterY),
+          radius,
           paint,
         );
       }
     }
   }
 
-  int _hash(int x, int y, int f) {
-    int h = x * 374761393 + y * 668265263 + f * 2246822519;
-    h = (h ^ (h >> 13)) * 1274126177;
-    return h.abs();
+  // PCG hash
+  int _pcgHash(int x, int y, int f) {
+    int h = (x * 374761393 + y * 668265263 + f * 2246822519).toUnsigned(32);
+    h = ((h ^ (h >> 13)) * 1274126177).toUnsigned(32);
+    return (h ^ (h >> 16)).toUnsigned(32);
   }
 
   @override
-  bool shouldRepaint(_GrainPainter old) => old.frame != frame;
+  bool shouldRepaint(_GrainPainter old) =>
+      old.frame != frame || old.intensity != intensity;
 }
 
 // ── Light Leak Painter ───────────────────────────────────────
-// フィルム左端のオレンジ・赤のハレーション光漏れを再現
 
 class _LightLeakPainter extends CustomPainter {
   final LightLeakStrength strength;
@@ -349,7 +536,6 @@ class _LightLeakPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final opacity = strength.opacity;
 
-    // 左端から広がる光漏れ（オレンジ）
     final leftRect = Rect.fromLTWH(0, 0, size.width * 0.55, size.height);
     final leftGrad = RadialGradient(
       center: const Alignment(-1.0, 0.2),
@@ -362,11 +548,8 @@ class _LightLeakPainter extends CustomPainter {
       stops: const [0.0, 0.35, 1.0],
     );
     canvas.drawRect(
-      leftRect,
-      Paint()..shader = leftGrad.createShader(leftRect),
-    );
+        leftRect, Paint()..shader = leftGrad.createShader(leftRect));
 
-    // 右上端の赤いハレーション（サブ）
     final rightRect = Rect.fromLTWH(
       size.width * 0.5,
       0,
@@ -383,9 +566,7 @@ class _LightLeakPainter extends CustomPainter {
       stops: const [0.0, 1.0],
     );
     canvas.drawRect(
-      rightRect,
-      Paint()..shader = rightGrad.createShader(rightRect),
-    );
+        rightRect, Paint()..shader = rightGrad.createShader(rightRect));
   }
 
   @override
@@ -393,7 +574,6 @@ class _LightLeakPainter extends CustomPainter {
 }
 
 // ── Grid Painter ─────────────────────────────────────────────
-// 3×3 ルールグリッド（写真構図用）
 
 class _GridPainter extends CustomPainter {
   const _GridPainter();
@@ -403,32 +583,443 @@ class _GridPainter extends CustomPainter {
     final paint = Paint()
       ..color = Colors.white.withValues(alpha: 0.25)
       ..strokeWidth = 0.5;
-
-    // 縦2本
     canvas.drawLine(
-      Offset(size.width / 3, 0),
-      Offset(size.width / 3, size.height),
-      paint,
-    );
+        Offset(size.width / 3, 0), Offset(size.width / 3, size.height), paint);
+    canvas.drawLine(Offset(size.width * 2 / 3, 0),
+        Offset(size.width * 2 / 3, size.height), paint);
     canvas.drawLine(
-      Offset(size.width * 2 / 3, 0),
-      Offset(size.width * 2 / 3, size.height),
-      paint,
-    );
-
-    // 横2本
-    canvas.drawLine(
-      Offset(0, size.height / 3),
-      Offset(size.width, size.height / 3),
-      paint,
-    );
-    canvas.drawLine(
-      Offset(0, size.height * 2 / 3),
-      Offset(size.width, size.height * 2 / 3),
-      paint,
-    );
+        Offset(0, size.height / 3), Offset(size.width, size.height / 3), paint);
+    canvas.drawLine(Offset(0, size.height * 2 / 3),
+        Offset(size.width, size.height * 2 / 3), paint);
   }
 
   @override
   bool shouldRepaint(_GridPainter _) => false;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GLSL シェーダー パイプライン（静止画用）
+// ═══════════════════════════════════════════════════════════════
+
+// ── Film Shader Params ────────────────────────────────────────
+
+class FilmShaderParams {
+  final double warmth;
+  final double saturation;
+  final double shadowLift;
+  final double highlightRolloff;
+  final double grainAmount;
+  final double vignetteStrength;
+  final double halationStrength;
+  final double softness;
+  final double chromaticAberration;
+  final double milkyHighlights;
+  final double contrast;
+  final double blueCrush;
+  final double halationWarmth;
+  final double grainSize;
+
+  const FilmShaderParams({
+    required this.warmth,
+    required this.saturation,
+    required this.shadowLift,
+    required this.highlightRolloff,
+    required this.grainAmount,
+    required this.vignetteStrength,
+    required this.halationStrength,
+    required this.softness,
+    required this.chromaticAberration,
+    required this.milkyHighlights,
+    required this.contrast,
+    required this.blueCrush,
+    required this.halationWarmth,
+    required this.grainSize,
+  });
+
+  /// intensity (0–1) で identity とブレンド
+  FilmShaderParams lerp(double t) => FilmShaderParams(
+        warmth: warmth * t,
+        saturation: 1.0 + (saturation - 1.0) * t,
+        shadowLift: shadowLift * t,
+        highlightRolloff: highlightRolloff * t,
+        grainAmount: grainAmount * t,
+        vignetteStrength: vignetteStrength * t,
+        halationStrength: halationStrength * t,
+        softness: softness * t,
+        chromaticAberration: chromaticAberration * t,
+        milkyHighlights: milkyHighlights * t,
+        contrast: contrast * t,
+        blueCrush: blueCrush * t,
+        halationWarmth: halationWarmth * t,
+        grainSize: grainSize,
+      );
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is FilmShaderParams &&
+        other.warmth == warmth &&
+        other.saturation == saturation &&
+        other.shadowLift == shadowLift &&
+        other.highlightRolloff == highlightRolloff &&
+        other.grainAmount == grainAmount &&
+        other.vignetteStrength == vignetteStrength &&
+        other.halationStrength == halationStrength &&
+        other.softness == softness &&
+        other.chromaticAberration == chromaticAberration &&
+        other.milkyHighlights == milkyHighlights &&
+        other.contrast == contrast &&
+        other.blueCrush == blueCrush &&
+        other.halationWarmth == halationWarmth &&
+        other.grainSize == grainSize;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        warmth,
+        saturation,
+        shadowLift,
+        highlightRolloff,
+        grainAmount,
+        vignetteStrength,
+        halationStrength,
+        softness,
+        chromaticAberration,
+        milkyHighlights,
+        contrast,
+        blueCrush,
+        halationWarmth,
+        grainSize,
+      );
+}
+
+// ── Fragment Program Cache ────────────────────────────────────
+// LUT ごとに専用シェーダーを持つため、Map でキャッシュする。
+
+final _programCache = <String, ui.FragmentProgram>{};
+final _programFutures = <String, Future<ui.FragmentProgram>>{};
+
+Future<ui.FragmentProgram> _loadShaderProgram(String asset) {
+  if (_programCache.containsKey(asset)) {
+    return Future.value(_programCache[asset]!);
+  }
+  _programFutures[asset] ??= ui.FragmentProgram.fromAsset(asset).then((p) {
+    _programCache[asset] = p;
+    return p;
+  });
+  return _programFutures[asset]!;
+}
+
+// ── Film Shader Painter ───────────────────────────────────────
+
+class FilmShaderPainter extends CustomPainter {
+  final ui.Image image;
+  final ui.FragmentProgram program;
+  final FilmShaderParams params;
+  final double time;
+
+  const FilmShaderPainter({
+    required this.image,
+    required this.program,
+    required this.params,
+    required this.time,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shader = program.fragmentShader();
+    // float 0,1: u_size
+    shader.setFloat(0, size.width);
+    shader.setFloat(1, size.height);
+    // float 2: u_time
+    shader.setFloat(2, time);
+    // float 3–16: LUT params (順序はシェーダーのuniform宣言に対応)
+    shader.setFloat(3, params.warmth);
+    shader.setFloat(4, params.saturation);
+    shader.setFloat(5, params.shadowLift);
+    shader.setFloat(6, params.highlightRolloff);
+    shader.setFloat(7, params.grainAmount);
+    shader.setFloat(8, params.vignetteStrength);
+    shader.setFloat(9, params.halationStrength);
+    shader.setFloat(10, params.softness);
+    shader.setFloat(11, params.chromaticAberration);
+    shader.setFloat(12, params.milkyHighlights);
+    shader.setFloat(13, params.contrast);
+    shader.setFloat(14, params.blueCrush);
+    shader.setFloat(15, params.halationWarmth);
+    shader.setFloat(16, params.grainSize);
+    // float 17,18: source image dimensions (coverUV計算用)
+    shader.setFloat(17, image.width.toDouble());
+    shader.setFloat(18, image.height.toDouble());
+    // image sampler 0
+    shader.setImageSampler(0, image);
+    canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
+  }
+
+  @override
+  bool shouldRepaint(FilmShaderPainter old) =>
+      old.time != time || old.params != params || old.image != image;
+}
+
+// ── FilmShaderImage ───────────────────────────────────────────
+//
+// 静止画ファイルに GLSL シェーダーを適用するウィジェット。
+// 現像画面・アルバム・フォト詳細で使用。
+
+class FilmShaderImage extends StatefulWidget {
+  final String imagePath;
+  final LutType lutType;
+  final double lutIntensity;
+  final BoxFit fit;
+  final bool animateGrain;
+
+  const FilmShaderImage({
+    super.key,
+    required this.imagePath,
+    required this.lutType,
+    this.lutIntensity = 1.0,
+    this.fit = BoxFit.cover,
+    this.animateGrain = false,
+  });
+
+  @override
+  State<FilmShaderImage> createState() => _FilmShaderImageState();
+}
+
+class _FilmShaderImageState extends State<FilmShaderImage>
+    with SingleTickerProviderStateMixin {
+  ui.Image? _image;
+  ui.FragmentProgram? _program;
+  late AnimationController _grainController;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _grainController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 83),
+    );
+    if (widget.animateGrain) _grainController.repeat();
+    _loadResources();
+  }
+
+  @override
+  void didUpdateWidget(FilmShaderImage old) {
+    super.didUpdateWidget(old);
+    if (old.lutType != widget.lutType) {
+      // LUT が変わった → 別シェーダーファイルをロード
+      _program = null;
+      setState(() => _loading = true);
+      _loadResources();
+      return; // _loadResources 内で _loadImage も呼ばれる
+    }
+    if (old.imagePath != widget.imagePath) {
+      _image?.dispose();
+      _image = null;
+      setState(() => _loading = true);
+      _loadImage();
+    }
+    if (widget.animateGrain && !old.animateGrain) {
+      _grainController.repeat();
+    } else if (!widget.animateGrain && old.animateGrain) {
+      _grainController.stop();
+    }
+  }
+
+  Future<void> _loadResources() async {
+    final program = await _loadShaderProgram(widget.lutType.shaderAsset);
+    if (!mounted) return;
+    setState(() => _program = program);
+    await _loadImage();
+  }
+
+  Future<void> _loadImage() async {
+    try {
+      final bytes = await File(widget.imagePath).readAsBytes();
+      // targetWidth: デコード時にスケールダウン → メモリ・GPU 負荷削減
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 1200);
+      final frame = await codec.getNextFrame();
+      if (mounted) {
+        setState(() {
+          _image?.dispose();
+          _image = frame.image;
+          _loading = false;
+        });
+      } else {
+        frame.image.dispose();
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _grainController.dispose();
+    _image?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Container(
+        color: const Color(0xFF0A0A0A),
+        child: const Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              color: Colors.white24,
+              strokeWidth: 1,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final image = _image;
+    final program = _program;
+
+    // シェーダー未ロード時: ColorFilter フォールバック
+    if (image == null || program == null) {
+      final file = File(widget.imagePath);
+      return ColorFiltered(
+        colorFilter: ColorFilter.matrix(widget.lutType.colorMatrix),
+        child: file.existsSync()
+            ? Image.file(file, fit: widget.fit)
+            : const _MockPlaceholder(),
+      );
+    }
+
+    final blended =
+        widget.lutType.shaderParams.lerp(widget.lutIntensity.clamp(0.0, 1.0));
+
+    return AnimatedBuilder(
+      animation: _grainController,
+      builder: (_, __) => CustomPaint(
+        painter: FilmShaderPainter(
+          image: image,
+          program: program,
+          params: blended,
+          // animateGrain=false のとき time 固定 → グレイン静止
+          time: widget.animateGrain ? _grainController.value * 100.0 : 0.5,
+        ),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class _MockPlaceholder extends StatelessWidget {
+  const _MockPlaceholder();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        color: const Color(0xFF111111),
+        child: const Center(
+          child: Icon(Icons.photo, color: Colors.white12, size: 32),
+        ),
+      );
+}
+
+// ── FilmProcessedSurface ──────────────────────────────────────
+//
+// 任意の child ウィジェットにフィルムルックを適用するラッパー。
+// カメラシミュレーター・現像画面・アルバムのチャイルドベース表示で使用。
+//
+// 実装: ColorFilter.matrix (カラーグレード) + CustomPainter (ビネット + グレイン)
+// ※ 静止画ファイルへの高品質適用は FilmShaderImage を使用すること。
+
+class FilmProcessedSurface extends StatefulWidget {
+  final LutType lutType;
+  final double lutIntensity;
+  final bool animated; // true = 12fps グレインアニメーション
+  final Widget child;
+
+  const FilmProcessedSurface({
+    super.key,
+    required this.lutType,
+    required this.child,
+    this.lutIntensity = 1.0,
+    this.animated = false,
+  });
+
+  @override
+  State<FilmProcessedSurface> createState() => _FilmProcessedSurfaceState();
+}
+
+class _FilmProcessedSurfaceState extends State<FilmProcessedSurface>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _grainController;
+
+  @override
+  void initState() {
+    super.initState();
+    _grainController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 83), // 12fps
+    );
+    if (widget.animated) _grainController.repeat();
+  }
+
+  @override
+  void didUpdateWidget(FilmProcessedSurface old) {
+    super.didUpdateWidget(old);
+    if (widget.animated && !old.animated) {
+      _grainController.repeat();
+    } else if (!widget.animated && old.animated) {
+      _grainController.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _grainController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final matrix = _interpolateMatrix(
+      widget.lutType.colorMatrix,
+      widget.lutIntensity,
+    );
+
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        // 1. Color grade
+        ColorFiltered(
+          colorFilter: ColorFilter.matrix(matrix),
+          child: widget.child,
+        ),
+
+        // 2. Vignette
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _VignettePainter(
+              strength: widget.lutType.vignetteStrength * widget.lutIntensity,
+            ),
+          ),
+        ),
+
+        // 3. Grain (animated or static frame 0)
+        Positioned.fill(
+          child: AnimatedBuilder(
+            animation: _grainController,
+            builder: (_, __) => CustomPaint(
+              painter: _GrainPainter(
+                frame:
+                    widget.animated ? (_grainController.value * 12).floor() : 0,
+                lutType: widget.lutType,
+                intensity: widget.lutIntensity,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
