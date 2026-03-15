@@ -141,28 +141,32 @@ class ContactSheetService {
         photos.where((p) => File(p.imagePath).existsSync()).toList();
     if (validPhotos.isEmpty) throw Exception('No photos available');
 
-    const cols = 5;
-    const thumbW = 146.0;
-    const thumbH = 108.0;
-    const gap = 10.0;
-    const outerPad = 38.0;
-    const topPad = 44.0;
-    const bottomPad = 56.0;
-    const headerH = 78.0;
-    const footerH = 58.0;
+    // 9×3 = 27枚ちょうど収まるランドスケープ(3:2)レイアウト
+    // 縦長セル(portrait)で縦位置写真のクロップを最小化
+    const cols = 9;
+    const rows = 3;
+    const totalWidth = 900.0;
+    const totalHeight = 600.0;
+    const outerPad = 30.0;
+    const topPad = 18.0;
+    const headerH = 68.0;
+    const footerH = 30.0;
+    const bottomPad = 18.0;
+    const gap = 8.0;
+
+    // サムネイルサイズを動的計算
+    const contentW = totalWidth - outerPad * 2;
+    const thumbW = (contentW - (cols - 1) * gap) / cols; // ≈ 86.2
+    const contentH = totalHeight - topPad - headerH - footerH - bottomPad; // 466
+    const thumbH = (contentH - (rows - 1) * gap) / rows; // = 150
 
     final images =
         await Future.wait(validPhotos.map((p) => _loadImage(p.imagePath)));
-    final rows = (images.length / cols).ceil();
-    const contentW = cols * thumbW + (cols - 1) * gap;
-    final contentH = rows * thumbH + (rows - 1) * gap;
-    const totalWidth = contentW + outerPad * 2;
-    final totalHeight = topPad + headerH + contentH + footerH + bottomPad;
 
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(
       recorder,
-      ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
+      const ui.Rect.fromLTWH(0, 0, totalWidth, totalHeight),
     );
 
     _fillBackground(
@@ -172,14 +176,15 @@ class ContactSheetService {
       const ui.Color(0xFFF7F2E8),
     );
 
+    // ヘッダー: タイトル行
     _drawText(
       canvas,
       'INDEX PRINT',
       outerPad,
-      topPad - 6,
-      20,
+      topPad + 4,
+      16,
       const ui.Color(0xFF2B2B2B),
-      maxWidth: totalWidth * 0.5,
+      maxWidth: totalWidth * 0.45,
     );
 
     final location = session.locationName ?? session.title;
@@ -188,63 +193,65 @@ class ContactSheetService {
       location,
       _formatDate(session.date),
       '${validPhotos.length} CUTS',
-    ].join('   /   ');
+    ].join('  /  ');
     _drawText(
       canvas,
       meta,
       outerPad,
-      topPad + 28,
-      12,
+      topPad + 30,
+      10,
       const ui.Color(0xFF5C5852),
       maxWidth: totalWidth - outerPad * 2,
     );
 
-    for (int i = 0; i < images.length; i++) {
+    // サムネイルグリッド
+    for (int i = 0; i < images.length && i < cols * rows; i++) {
       final col = i % cols;
       final row = i ~/ cols;
       final x = outerPad + col * (thumbW + gap);
       final y = topPad + headerH + row * (thumbH + gap);
       final frame = ui.Rect.fromLTWH(x, y, thumbW, thumbH);
 
+      // 外枠（乳白色）
       canvas.drawRect(
-        frame.inflate(2),
-        ui.Paint()..color = const ui.Color(0xFFEEE6DA),
+        frame.inflate(1.5),
+        ui.Paint()..color = const ui.Color(0xFFE8E0D4),
       );
+      // 黒背景
       canvas.drawRect(
         frame,
         ui.Paint()..color = const ui.Color(0xFF0F0F10),
       );
 
-      final photoRect = ui.Rect.fromLTWH(
-        x + 3,
-        y + 3,
-        thumbW - 6,
-        thumbH - 18,
-      );
+      // 写真（ラベル領域を除いた上部に配置）
+      const labelH = 14.0;
+      final photoRect = ui.Rect.fromLTWH(x, y, thumbW, thumbH - labelH);
       canvas.save();
       canvas.clipRect(photoRect);
       _drawImageCover(canvas, images[i], photoRect);
       canvas.restore();
 
+      // フレーム番号
       _drawText(
         canvas,
         (i + 1).toString().padLeft(2, '0'),
-        x + 6,
-        y + thumbH - 15,
-        10,
-        const ui.Color(0xFFD8D1C4),
-        maxWidth: 26,
+        x + 3,
+        y + thumbH - labelH + 2,
+        7,
+        const ui.Color(0xFFBBB3A8),
+        maxWidth: thumbW - 6,
       );
     }
 
+    // フッター: ブランド名
     _drawText(
       canvas,
-      'ZOOTOCAM',
-      totalWidth - outerPad - 92,
-      totalHeight - bottomPad + 4,
-      12,
+      'ZOOSMAP',
+      totalWidth - outerPad - 70,
+      totalHeight - bottomPad - footerH + 8,
+      10,
       const ui.Color(0xFF7E786E),
-      maxWidth: 92,
+      maxWidth: 70,
     );
 
     return _saveCanvas(

@@ -27,13 +27,13 @@ enum LutType {
   String get subtitle {
     switch (this) {
       case LutType.natural:
-        return 'やわらかな暖色';
+        return '写ルんです ISO800';
       case LutType.warm:
-        return '黄金色の夕暮れ';
+        return 'Kodak Gold / 期限切れ';
       case LutType.fuji:
-        return '澄んだ鮮やか';
+        return 'Superia 400';
       case LutType.mono:
-        return '銀塩モノクローム';
+        return 'HP5 Plus 400 B&W';
     }
   }
 
@@ -95,24 +95,28 @@ enum LutType {
           0,
         ];
       // ── Fuji Superia 400/800 ─────────────────────────────────────────────
-      // 特性: クール・高彩度・シアン影
+      // v2: VSCO Film 400H + Dazz Fuji に合わせてライブプレビューも更新
+      //   bias (5列目) をシアン-緑色の D-min に合わせて調整
+      //   R bias: -4 → -6  (赤を沈める = シアン感)
+      //   G bias:  5 → 12  (緑フロアを上げる = Fuji 緑床)
+      //   B bias:  7 → 18  (青フロアを上げる = シアン床 / faded 感)
       case LutType.fuji:
         return [
-          0.94,
-          -0.02,
+          0.92,  // R←R: 赤を少し引く（シアン）
+          -0.03,
           0.01,
           0,
-          -4,
+          -6,    // R bias: -4 → -6
           0.00,
-          1.06,
+          1.08,  // G←G: 1.06 → 1.08（Fuji 緑ブースト）
           0.04,
           0,
-          5,
+          12,    // G bias: 5 → 12（緑床を上げる）
+          0.05,
           0.04,
-          0.04,
-          1.08,
+          1.10,  // B←B: 1.08 → 1.10（シアン成分強化）
           0,
-          7,
+          18,    // B bias: 7 → 18（青床 = faded 感の核心）
           0,
           0,
           0,
@@ -185,21 +189,27 @@ enum LutType {
           grainSize: 2.0,
         );
       case LutType.fuji:
+        // v2: VSCO Film 400H + Dazz Fuji のいいとこどり
+        //   shadowLift 0.35→0.78: VSCO faded 黒（D-min v2 強化に合わせ）
+        //   halationStrength 0.30→0.60: Dazz の視認できる青-紫滲み（5x5 カーネル活用）
+        //   grainAmount 0.65→0.90: Dazz の粗っぽい粒感
+        //   saturation 1.10→1.18: Fuji の鮮やかな緑をもう一押し
+        //   contrast 0.10→0.18: shadowLift で失ったコントラストを補填
         return const FilmShaderParams(
-          warmth: 0.20,
-          saturation: 1.10,
-          shadowLift: 0.35,
-          highlightRolloff: 0.60,
-          grainAmount: 0.65,
-          vignetteStrength: 0.55,
-          halationStrength: 0.30,
+          warmth: 0.18,
+          saturation: 1.18,
+          shadowLift: 0.78,
+          highlightRolloff: 0.65,
+          grainAmount: 0.90,
+          vignetteStrength: 0.60,
+          halationStrength: 0.60,
           softness: 0.35,
           chromaticAberration: 0.35,
-          milkyHighlights: 0.40,
-          contrast: 0.10,
+          milkyHighlights: 0.45,
+          contrast: 0.18,
           blueCrush: 0.02,
-          halationWarmth: 0.20,
-          grainSize: 1.5,
+          halationWarmth: 0.18,
+          grainSize: 1.6,
         );
       case LutType.mono:
         return const FilmShaderParams(
@@ -244,7 +254,7 @@ enum LutType {
       case LutType.warm:
         return 0.58;
       case LutType.fuji:
-        return 0.38;
+        return 0.48; // 0.38 → 0.48: Dazz 相当の締まり感
       case LutType.mono:
         return 0.68;
     }

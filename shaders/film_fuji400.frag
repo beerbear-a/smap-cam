@@ -1,4 +1,4 @@
-// film_fuji400.frag  v1  —  Fujifilm Superia 400 C41 光化学再現
+// film_fuji400.frag  v2  —  Fujifilm Superia 400 C41 光化学再現（VSCO+Dazz強化）
 // Maya Ishikawa — ZootoCam Shader Engine
 //
 // Fujifilm Superia 400 の乳剤特性 (Kodak ISO800 との対比):
@@ -126,9 +126,10 @@ float filmShoulder(float x, float start, float rolloff, float cap) {
 // Fuji shoulder: より急峻な肩 → クリーンなハイライト
 vec3 applyFilmCurve(vec3 c, float sl, float hr, float contrast) {
     // D-min: Fuji のシャドウ床はシアン-緑 (Kodak のアンバーと逆)
-    float r = filmToe(c.r, sl * 0.55, 0.012);   // R: 最も低い床 (暗部でRが沈む)
-    float g = filmToe(c.g, sl * 1.10, 0.035);   // G: 最も高い床 (暗部で緑-シアン)
-    float b = filmToe(c.b, sl * 0.85, 0.026);   // B: 中程度 (シアン成分)
+    // v2: VSCO 相当の faded 黒を出すため D-min を 3× に引き上げ
+    float r = filmToe(c.r, sl * 0.55, 0.038);   // R: 0.012 → 0.038 (暗部でRが沈む)
+    float g = filmToe(c.g, sl * 1.10, 0.095);   // G: 0.035 → 0.095 (暗部で緑-シアン)
+    float b = filmToe(c.b, sl * 0.85, 0.072);   // B: 0.026 → 0.072 (シアン成分)
 
     // Shoulder: Fuji は Kodak より急峻な肩 → クリーンな白
     // cap を高めに設定 (0.982, 0.975, 0.968) → クリーンな白に近い
@@ -178,15 +179,16 @@ vec3 applyColorSplit(vec3 c, float warmth) {
     float midMask       = 1.0 - shadowMask - highlightMask;
 
     // シャドウ: シアン-緑 (warmth が低いほど強くシアン寄り)
+    // v2: VSCO Film 400H 相当のシアンシャドウに強化
     float coolness = 1.0 - warmth;
-    float sg =  coolness * 0.022 * shadowMask;   // green 上げ
-    float sb =  coolness * 0.018 * shadowMask;   // blue 上げ (シアン)
-    float sr = -coolness * 0.010 * shadowMask;   // red 下げ
+    float sg =  coolness * 0.032 * shadowMask;   // 0.022 → 0.032 green 上げ
+    float sb =  coolness * 0.028 * shadowMask;   // 0.018 → 0.028 blue 上げ (シアン)
+    float sr = -coolness * 0.016 * shadowMask;   // 0.010 → 0.016 red 下げ
 
     // ミッドトーン: わずかにクール (warmth=0で最もクール)
-    float mr = -coolness * 0.008 * midMask;
-    float mg =  coolness * 0.005 * midMask;
-    float mb =  coolness * 0.010 * midMask;
+    float mr = -coolness * 0.012 * midMask;      // 0.008 → 0.012
+    float mg =  coolness * 0.008 * midMask;      // 0.005 → 0.008
+    float mb =  coolness * 0.015 * midMask;      // 0.010 → 0.015
 
     // ハイライト: クリーン → warmth が高いと少し暖色に
     float hr =  warmth * 0.012 * highlightMask;
@@ -210,11 +212,13 @@ vec3 applyColorSplit(vec3 c, float warmth) {
 
 vec3 applyFujiGreenCrossover(vec3 c, float amount) {
     float l = luma(c);
-    // Fuji 緑クロスオーバー: 0.05-0.35 帯（Kodak の 0.08-0.55 より浅い）
-    float crossover = smoothstep(0.05, 0.22, l) * (1.0 - smoothstep(0.22, 0.40, l));
-    // 緑をリフト + 赤を微少し引く → Fuji の酸っぱい緑感
-    c.g = clamp(c.g + amount * 0.024 * crossover, 0.0, 1.0);
-    c.r = clamp(c.r - amount * 0.006 * crossover, 0.0, 1.0);
+    // Fuji 緑クロスオーバー: 0.05-0.40 帯（Kodak の 0.08-0.55 より浅い）
+    // v2: crossover 帯域を広げ + 係数強化 → Dazz の「Fuji グリーン」感
+    float crossover = smoothstep(0.05, 0.22, l) * (1.0 - smoothstep(0.22, 0.48, l));
+    // 緑をリフト + 青をわずかに + 赤を引く → Fuji の「酸っぱいシアン-緑」
+    c.g = clamp(c.g + amount * 0.038 * crossover, 0.0, 1.0);  // 0.024 → 0.038
+    c.b = clamp(c.b + amount * 0.012 * crossover, 0.0, 1.0);  // 新規: 青も少し
+    c.r = clamp(c.r - amount * 0.010 * crossover, 0.0, 1.0);  // 0.006 → 0.010
     return c;
 }
 
@@ -291,28 +295,30 @@ vec3 sampleLens(vec2 uv) {
 
 vec3 applyHalation(vec3 c, vec2 uv) {
     float baseLuma   = luma(c);
-    float brightMask = smoothstep(0.72, 0.98, baseLuma) * u_halation_strength;
+    float brightMask = smoothstep(0.68, 0.97, baseLuma) * u_halation_strength;
     if (brightMask < 0.003) return c;
 
-    vec2  texel     = 1.0 / u_size;
-    float baseSpread = 3.0 + u_halation_strength * 4.0;
-    float spreadR   = baseSpread * 0.45;   // Fuji: 赤が最も少ない
-    float spreadB   = baseSpread * 1.00;   // 青が最大 (冷色ハレーション)
+    vec2  texel      = 1.0 / u_size;
+    // v2: spread を拡大 → Dazz 相当の視認できる光の滲みに
+    float baseSpread = 6.0 + u_halation_strength * 8.0;  // 3+4 → 6+8
+    float spreadR    = baseSpread * 0.45;   // Fuji: 赤が最も少ない
+    float spreadB    = baseSpread * 1.00;   // 青が最大 (冷色ハレーション)
 
+    // v2: 3×3 → 5×5 カーネルに拡大（視認できるハレーション範囲）
     float rBleed = 0.0, bBleed = 0.0, totalW = 0.0;
-    for (int dx = -1; dx <= 1; dx++) {
-        for (int dy = -1; dy <= 1; dy++) {
-            float w = exp(-float(dx*dx + dy*dy) * 0.35);
+    for (int dx = -2; dx <= 2; dx++) {
+        for (int dy = -2; dy <= 2; dy++) {
+            float w = exp(-float(dx*dx + dy*dy) * 0.28);
             totalW += w;
 
             vec2 offR = vec2(float(dx), float(dy)) * texel * spreadR;
             vec3 scR  = texture(u_texture, coverUV(uv + offR)).rgb;
-            float bwR = smoothstep(0.68, 1.0, luma(scR)) * w;
+            float bwR = smoothstep(0.62, 1.0, luma(scR)) * w;
             rBleed   += scR.r * bwR;
 
             vec2 offB = vec2(float(dx), float(dy)) * texel * spreadB;
             vec3 scB  = texture(u_texture, coverUV(uv + offB)).rgb;
-            float bwB = smoothstep(0.68, 1.0, luma(scB)) * w;
+            float bwB = smoothstep(0.62, 1.0, luma(scB)) * w;
             bBleed   += scB.b * bwB;
         }
     }
@@ -321,11 +327,12 @@ vec3 applyHalation(vec3 c, vec2 uv) {
     bBleed *= norm;
 
     // u_halation_warmth: 0=青-紫ハレーション, 1=中性
+    // v2: glow 係数を強化 → 視認できる青-紫の滲み
     float warmFactor = u_halation_warmth;
     vec3 glow = vec3(
-        rBleed * 0.06 * warmFactor,                    // 赤: 少量 (暖色系)
-        bBleed * (1.0 - warmFactor) * 0.10,            // 緑: warmth 低いと青-緑
-        bBleed * (0.14 + (1.0 - warmFactor) * 0.10)   // 青: 冷色ハレーション主体
+        rBleed * 0.08 * warmFactor,                    // 赤: 0.06 → 0.08
+        bBleed * (1.0 - warmFactor) * 0.14,            // 緑: 0.10 → 0.14
+        bBleed * (0.20 + (1.0 - warmFactor) * 0.14)   // 青: 0.14+0.10 → 0.20+0.14
     );
     return clamp(c + glow * brightMask, 0.0, 1.0);
 }

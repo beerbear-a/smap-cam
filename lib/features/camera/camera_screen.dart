@@ -251,7 +251,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
               const SizedBox(height: 4),
               Text(
                 session.isFilmMode
-                    ? '${FilmSession.maxPhotos - session.remainingShots} 枚撮影済み'
+                    ? '${session.photoCount} / ${FilmSession.maxPhotos} 枚'
                     : '${session.photoCount} 枚を記録しました',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.4),
@@ -923,10 +923,12 @@ class _SessionIndicator extends StatelessWidget {
         ),
       );
     }
-    final remaining = _predictedRemainingShots(
-      session,
-      isCapturing: isCapturing,
-    );
+    // フィルムカメラらしく「撮影済み枚数 / 合計」で数え上げ表示
+    // isCapturing 中は +1 して応答性を確保
+    final predictedTaken = FilmSession.maxPhotos -
+        _predictedRemainingShots(session, isCapturing: isCapturing);
+    final frameNum =
+        predictedTaken.clamp(0, FilmSession.maxPhotos);
     return Container(
       constraints: const BoxConstraints(minHeight: 46),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -948,7 +950,7 @@ class _SessionIndicator extends StatelessWidget {
           ),
           const SizedBox(width: 5),
           Text(
-            '残り ${remaining.toString().padLeft(2, '0')}',
+            '${frameNum.toString().padLeft(2, '0')} / ${FilmSession.maxPhotos}',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 13,
@@ -1140,23 +1142,35 @@ class _RollCompletedOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'フィルムを撮り切りました',
+                  '27枚、撮り切りました',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 20,
                     fontWeight: FontWeight.w300,
-                    letterSpacing: 0.5,
+                    letterSpacing: 1.2,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
+                Text(
+                  '現像まで、少しだけ待ってください',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontSize: 12,
+                    letterSpacing: 0.8,
+                    height: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
                   canDevelop
-                      ? '現像の準備ができました'
+                      ? '現像の準備が整いました'
                       : waitText.isNotEmpty
                           ? waitText
                           : 'しばらく待つと現像できます',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.6),
+                    color: canDevelop
+                        ? const Color(0xFFFFD580)
+                        : Colors.white.withValues(alpha: 0.45),
                     fontSize: 13,
                     height: 1.5,
                   ),

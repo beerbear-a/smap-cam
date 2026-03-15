@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,6 +50,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
   FilmSession? _session;
   String? _indexSheetPath;
   bool _isGeneratingIndexSheet = false;
+  Timer? _waitingTimer;
 
   LutType get _effectiveLutType =>
       _session?.isFilmMode == true ? LutType.natural : widget.lutType;
@@ -86,6 +88,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
     _chemController.dispose();
     _stripController.dispose();
     _fadeController.dispose();
+    _waitingTimer?.cancel();
     super.dispose();
   }
 
@@ -113,6 +116,11 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
         _photos = photos;
         _indexSheetPath = session.indexSheetPath;
         _isWaiting = true;
+      });
+      // 30秒ごとに残り時間表示を更新
+      _waitingTimer?.cancel();
+      _waitingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
       });
       return;
     }
@@ -212,7 +220,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
               ),
               const SizedBox(height: 10),
               Text(
-                'Proなら、フィルム現像の待ち時間をスキップしてすぐ開けます。',
+                '待つのも、フィルムの一部です。\nProなら、今夜のうちに開けることができます。',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.62),
                   fontSize: 13,
@@ -579,7 +587,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
                   padding: const EdgeInsets.symmetric(vertical: 15),
                 ),
                 child: Text(
-                  isPro ? '今すぐ現像する' : '今すぐ現像する  PRO',
+                  isPro ? '今夜、現像する' : '今夜、現像する  PRO',
                   style: const TextStyle(letterSpacing: 1.4),
                 ),
               ),
@@ -903,8 +911,8 @@ class _IndexSheetCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             isGenerating
-                ? '撮り切ったロールから、現像所のインデックスシートを作っています。'
-                : '撮り切ったフィルムから、自動でインデックスシートを書き出しました。',
+                ? '27枚が1枚のシートになっています。少しお待ちください。'
+                : '27枚が、1枚のシートに揃いました。',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.6),
               fontSize: 12,
@@ -915,7 +923,7 @@ class _IndexSheetCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: AspectRatio(
-              aspectRatio: 1.48,
+              aspectRatio: 900 / 600, // IndexSheet 出力サイズ(900×600)に合わせた 3:2
               child: isGenerating
                   ? Container(
                       color: const Color(0xFFF3EDE1),
