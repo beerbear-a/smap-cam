@@ -10,6 +10,7 @@ enum LutType {
   warm, // ゴールデンアワー — 無料2種目
   fuji,
   mono;
+  // {{LUT_ENUM}} ← new_lut.dart が自動挿入するマーカー (削除しない)
 
   String get label {
     switch (this) {
@@ -21,6 +22,7 @@ enum LutType {
         return 'FUJI';
       case LutType.mono:
         return 'MONO';
+      // {{LUT_LABEL}}
     }
   }
 
@@ -34,6 +36,7 @@ enum LutType {
         return 'Superia 400';
       case LutType.mono:
         return 'HP5 Plus 400 B&W';
+      // {{LUT_SUBTITLE}}
     }
   }
 
@@ -46,6 +49,7 @@ enum LutType {
       case LutType.fuji:
       case LutType.mono:
         return true;
+      // {{LUT_ISPRO}}
     }
   }
 
@@ -147,6 +151,7 @@ enum LutType {
           1,
           0,
         ];
+      // {{LUT_COLORMATRIX}}
     }
   }
 
@@ -235,6 +240,7 @@ enum LutType {
           halationWarmth: 0.0,
           grainSize: 1.8,
         );
+      // {{LUT_SHADERPARAMS}}
     }
   }
 
@@ -250,6 +256,7 @@ enum LutType {
         return 'shaders/film_fuji400.frag'; // Fujifilm Superia 400
       case LutType.mono:
         return 'shaders/film_mono_hp5.frag'; // Ilford HP5 Plus 400
+      // {{LUT_SHADERASSET}}
     }
   }
 
@@ -264,6 +271,7 @@ enum LutType {
         return 0.48; // 0.38 → 0.48: Dazz 相当の締まり感
       case LutType.mono:
         return 0.68;
+      // {{LUT_VIGNETTE}}
     }
   }
 }
