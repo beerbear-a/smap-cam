@@ -114,12 +114,14 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final currentIndex = ref.watch(mainTabIndexProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
     final debugSettings = ref.watch(debugSettingsProvider);
-    final showMapTab =
-        addonTabs.showMap && debugSettings.zooFeaturesEnabled;
-    final showZukan =
-        addonTabs.showZukan && debugSettings.zooFeaturesEnabled;
-    final isCurrentTabHidden =
-        (currentIndex == 2 && !showMapTab) || (currentIndex == 3 && !showZukan);
+    final visibility = computeFeatureVisibility(
+      debug: debugSettings,
+      showMap: addonTabs.showMap,
+      showZukan: addonTabs.showZukan,
+      mapboxDisabled: RuntimeCompatibility.disableMapbox,
+    );
+    final isCurrentTabHidden = (currentIndex == 2 && !visibility.mapVisible) ||
+        (currentIndex == 3 && !visibility.zukanVisible);
     final visibleIndex = isCurrentTabHidden ? 0 : currentIndex;
     _initializedTabs.add(visibleIndex);
 
@@ -140,8 +142,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         currentIndex: visibleIndex,
         onTap: _onTabTap,
         showLabels: showLabels,
-        showMap: showMapTab,
-        showZukan: showZukan,
+        showMap: visibility.mapVisible,
+        showZukan: visibility.zukanVisible,
       ),
     );
   }

@@ -898,10 +898,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                             fit: BoxFit.cover,
                             animateGrain: true,
                           )
-                        : Image.file(
-                            File(previewPath),
-                            fit: BoxFit.cover,
-                          ),
+                        : (File(previewPath).existsSync()
+                            ? Image.file(File(previewPath), fit: BoxFit.cover)
+                            : const MockPhotoView()),
                     if (cs.showGrid)
                       const IgnorePointer(
                         child: CustomPaint(painter: GridPainter()),

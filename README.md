@@ -1,17 +1,25 @@
-# zootocam
+# ZootoCam
 
-A new Flutter project.
+フィルム体験を核にしたカメラアプリです。ロール単位で撮影し、現像して振り返る体験を現代的なUIで提供します。
+撮影メモは自動入力され、場所のチェックイン（現在は内部データ）と結び付けて記録します。
 
-## Getting Started
+## 主な機能
 
-This project is a starting point for a Flutter application.
+- フィルム/インスタントの撮影体験
+- フィルムルック（現像後の色味）選択
+- グリッド/タイマー/ライトリーク
+- ロールの現像、アルバム、共有
+- 図鑑タブ（出会い済み/未発見の整理）
+- 撮影メモの自動入力（iOS Vision）
 
-A few resources to get you started if this is your first Flutter project:
+## 開発メモ
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- Flutter (iOS/Android)
+- Mapbox は現在プレースホルダー表示（タブは表示）
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 実行
+
+```
+./flutter/bin/flutter pub get
+./flutter/bin/flutter run
+```

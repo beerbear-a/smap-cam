@@ -172,9 +172,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final aiSettings = ref.watch(aiMemoryAssistSettingsProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
     final debugSettings = ref.watch(debugSettingsProvider);
+    final visibility = computeFeatureVisibility(
+      debug: debugSettings,
+      showMap: addonTabs.showMap,
+      showZukan: addonTabs.showZukan,
+      mapboxDisabled: RuntimeCompatibility.disableMapbox,
+    );
     final effectiveAddonTabs = addonTabs.copyWith(
-      showMap: addonTabs.showMap && debugSettings.zooFeaturesEnabled,
-      showZukan: addonTabs.showZukan && debugSettings.zooFeaturesEnabled,
+      showMap: visibility.mapVisible,
+      showZukan: visibility.zukanVisible,
     );
 
     return Scaffold(
@@ -379,9 +385,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           '現在はマップはプレースホルダー表示です')
                       : '非表示にするとカメラとアルバムだけになります',
               trailing: Switch(
-                value: debugSettings.zooFeaturesEnabled
-                    ? ref.watch(addonTabsVisibilityProvider).showMap
-                    : false,
+                value: visibility.mapVisible,
                 onChanged: !debugSettings.zooFeaturesEnabled
                     ? null
                     : (value) => ref
@@ -397,9 +401,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ? '場所機能がOFFのため図鑑は表示されません'
                   : '設定からいつでも表示 / 非表示を切り替えられます',
               trailing: Switch(
-                value: debugSettings.zooFeaturesEnabled
-                    ? ref.watch(addonTabsVisibilityProvider).showZukan
-                    : false,
+                value: visibility.zukanVisible,
                 onChanged: !debugSettings.zooFeaturesEnabled
                     ? null
                     : (value) => ref

@@ -78,6 +78,32 @@ final debugSettingsProvider =
   return DebugSettingsNotifier();
 });
 
+class FeatureVisibility {
+  final bool mapVisible;
+  final bool zukanVisible;
+  final bool mapAvailable;
+
+  const FeatureVisibility({
+    required this.mapVisible,
+    required this.zukanVisible,
+    required this.mapAvailable,
+  });
+}
+
+FeatureVisibility computeFeatureVisibility({
+  required DebugSettings debug,
+  required bool showMap,
+  required bool showZukan,
+  required bool mapboxDisabled,
+}) {
+  final mapAvailable = debug.zooFeaturesEnabled && !mapboxDisabled;
+  return FeatureVisibility(
+    mapVisible: debug.zooFeaturesEnabled && showMap,
+    zukanVisible: debug.zooFeaturesEnabled && showZukan,
+    mapAvailable: mapAvailable,
+  );
+}
+
 const debugFilmShaderOptions = <String, String?>{
   'AUTO (フィルム別)': null,
   'PIPELINE (film_pipeline.frag)': 'shaders/film_pipeline.frag',
