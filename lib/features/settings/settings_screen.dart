@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/ai_connection_settings.dart';
 import '../../core/config/ai_memory_assist.dart';
+import '../../core/config/camera_settings.dart';
 import '../../core/config/debug_settings.dart';
 import '../../core/config/runtime_compatibility.dart';
 import '../../core/config/pro_access.dart';
@@ -225,6 +226,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             // カメラ
             const _SectionHeader(title: 'カメラ'),
+            _SettingsTile(
+              title: '写ルンですモード',
+              subtitle: '固定焦点と32mm相当の画角、明るめの露出に切り替えます',
+              trailing: Switch(
+                value: ref.watch(
+                  cameraSettingsProvider.select(
+                    (s) => s.utsurunModeEnabled,
+                  ),
+                ),
+                onChanged: (value) => ref
+                    .read(cameraSettingsProvider.notifier)
+                    .setUtsurunModeEnabled(value),
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
             const _SettingsTile(
               title: 'フィルム枚数',
               subtitle: '1本あたりの撮影枚数',

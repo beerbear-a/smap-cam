@@ -59,6 +59,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     super.initState();
     _cameraNotifier = ref.read(cameraProvider.notifier);
     WidgetsBinding.instance.addObserver(this);
+    CameraService.setHardwareShutterHandler(() {
+      final cs = ref.read(cameraProvider);
+      if (!cs.canShoot) return;
+      _onShutter();
+    });
 
     _flashController = AnimationController(
       vsync: this,
@@ -91,6 +96,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    CameraService.setHardwareShutterHandler(null);
     _flashController.dispose();
     _focusController.dispose();
     _cameraNotifier.disposeCamera();
@@ -107,6 +113,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _onShutter() {
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+    }
     final cs = ref.read(cameraProvider);
     if (cs.timerMode == TimerMode.off) {
       _flashController.forward().then((_) => _flashController.reverse());
@@ -116,6 +125,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _onTapUp(TapUpDetails details) {
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+      return;
+    }
     final cs = ref.read(cameraProvider);
     if (!cs.isCameraReady) return;
     final size = _previewAreaKey.currentContext?.size;
@@ -140,6 +153,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _showSettingsSheet(BuildContext context, CameraState cs) {
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+    }
     final session = cs.activeSession;
     final canEditFilmLook = session == null
         ? true
@@ -324,6 +340,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _showRollStatusDialog(BuildContext context, CameraState cs) {
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+    }
     showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -602,6 +621,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     final screenHeight = MediaQuery.sizeOf(context).height;
     final isCompactHeight = screenHeight < 760;
     final session = cs.activeSession;
+    final showSessionIndicator =
+        cs.completedRollSession == null && cs.activeSession != null;
     final canEditFilmLook = session == null
         ? true
         : session.isInstantMode
@@ -646,6 +667,21 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
       body: SafeArea(
         child: Column(
           children: [
+            SizedBox(height: isCompactHeight ? 6 : 10),
+            if (showSessionIndicator)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Center(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _showRollStatusDialog(context, cs),
+                    child: _SessionIndicator(
+                      session: session!,
+                      isCapturing: cs.isCapturing,
+                    ),
+                  ),
+                ),
+              ),
             SizedBox(height: isCompactHeight ? 8 : 12),
 
             // ── プレビュー（ラウンドコーナー）──────────────
@@ -673,29 +709,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         aspectRatio: cs.aspectRatio,
                         orientation: MediaQuery.orientationOf(context),
                       ),
-                      Positioned(
-                        top: 14,
-                        left: 18,
-                        right: 18,
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 46),
-                            const Spacer(),
-                            if (cs.completedRollSession == null &&
-                                cs.activeSession != null)
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => _showRollStatusDialog(context, cs),
-                                child: _SessionIndicator(
-                                  session: cs.activeSession!,
-                                  isCapturing: cs.isCapturing,
-                                ),
-                              ),
-                            const Spacer(),
-                            const SizedBox(width: 46),
-                          ],
-                        ),
-                      ),
                       if (_isControlDockOpen)
                         Positioned.fill(
                           child: GestureDetector(
@@ -721,18 +734,25 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           filmViewActive: cs.filmPreviewEnabled,
                           onToggle: () {
                             HapticFeedback.selectionClick();
-                            setState(
-                              () => _isControlDockOpen = !_isControlDockOpen,
-                            );
+                            setState(() {
+                              _isControlDockOpen = !_isControlDockOpen;
+                              _showLutPanel = false;
+                            });
                           },
                           onAspectRatioTap: () {
                             HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
                             ref
                                 .read(cameraProvider.notifier)
                                 .cycleAspectRatio();
                           },
                           onTimerTap: () {
                             HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
                             ref.read(cameraProvider.notifier).cycleTimerMode();
                           },
                           onLutTap: () {
@@ -744,12 +764,18 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           },
                           onFilmViewTap: () {
                             HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
                             ref
                                 .read(cameraProvider.notifier)
                                 .toggleFilmPreview();
                           },
                           onFlashTap: () {
                             HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
                             ref.read(cameraProvider.notifier).toggleFlash();
                           },
                           onSettingsTap: () {
@@ -758,6 +784,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           },
                         ),
                       ),
+                      if (showLutPanel)
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () =>
+                                setState(() => _showLutPanel = false),
+                          ),
+                        ),
                       if (showLutPanel)
                         Positioned(
                           left: 12,

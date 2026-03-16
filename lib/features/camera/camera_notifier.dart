@@ -11,6 +11,7 @@ import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/services/camera_service.dart';
 import '../../core/config/debug_settings.dart';
+import '../../core/config/camera_settings.dart';
 import 'film_still_service.dart';
 import 'widgets/film_preview.dart';
 
@@ -260,6 +261,14 @@ class CameraNotifier extends StateNotifier<CameraState> {
         clearFilmShaderAssetOverride: next.filmShaderAssetOverride == null,
       );
     });
+    _ref.listen<CameraSettings>(cameraSettingsProvider, (prev, next) async {
+      if (prev?.utsurunModeEnabled == next.utsurunModeEnabled) {
+        return;
+      }
+      if (!state.isSimulatorMode && state.isCameraReady) {
+        await CameraService.setUtsurunEnabled(next.utsurunModeEnabled);
+      }
+    });
   }
 
   Timer? _timerTick;
@@ -288,6 +297,9 @@ class CameraNotifier extends StateNotifier<CameraState> {
       final result = await CameraService.initializeCamera();
       final textureId = result['textureId'] as int?;
       state = state.copyWith(textureId: textureId, isCameraReady: true);
+      final utsurunEnabled =
+          _ref.read(cameraSettingsProvider).utsurunModeEnabled;
+      await CameraService.setUtsurunEnabled(utsurunEnabled);
       await setFocalLength(state.focalLength);
     } on PlatformException catch (_) {
       // シミュレーター：カメラなしでも続行
