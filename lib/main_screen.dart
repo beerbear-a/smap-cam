@@ -96,9 +96,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       1 => const AlbumScreen(),
       2 => RuntimeCompatibility.disableMapbox
           ? _CompatibilityPlaceholder(
-              title: 'MAP DISABLED',
+              title: 'マップは非表示',
               message:
-                  RuntimeCompatibility.mapboxDisableReason ?? 'マップを一時停止しています。',
+                  RuntimeCompatibility.mapboxDisableReason ??
+                  'マップは現在表示しない設定です。',
             )
           : const MapScreen(),
       3 => const ZukanScreen(),
@@ -113,10 +114,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final currentIndex = ref.watch(mainTabIndexProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
     final debugSettings = ref.watch(debugSettingsProvider);
-    final showMapTab = addonTabs.showMap &&
-        debugSettings.zooFeaturesEnabled &&
-        !RuntimeCompatibility.disableMapbox;
-    const showZukan = false;
+    final showMapTab =
+        addonTabs.showMap && debugSettings.zooFeaturesEnabled;
+    final showZukan =
+        addonTabs.showZukan && debugSettings.zooFeaturesEnabled;
     final isCurrentTabHidden =
         (currentIndex == 2 && !showMapTab) || (currentIndex == 3 && !showZukan);
     final visibleIndex = isCurrentTabHidden ? 0 : currentIndex;

@@ -60,7 +60,7 @@ class AddonTabsVisibility {
 
   const AddonTabsVisibility({
     this.showMap = true,
-    this.showZukan = false,
+    this.showZukan = true,
   });
 
   AddonTabsVisibility copyWith({
@@ -118,10 +118,9 @@ class AddonTabsVisibilityNotifier extends StateNotifier<AddonTabsVisibility> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('show_zukan_tab', false);
     state = AddonTabsVisibility(
       showMap: prefs.getBool('show_map_tab') ?? true,
-      showZukan: false,
+      showZukan: prefs.getBool('show_zukan_tab') ?? true,
     );
   }
 
@@ -174,9 +173,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
     final debugSettings = ref.watch(debugSettingsProvider);
     final effectiveAddonTabs = addonTabs.copyWith(
-      showMap: addonTabs.showMap &&
-          debugSettings.zooFeaturesEnabled &&
-          !RuntimeCompatibility.disableMapbox,
+      showMap: addonTabs.showMap && debugSettings.zooFeaturesEnabled,
+      showZukan: addonTabs.showZukan && debugSettings.zooFeaturesEnabled,
     );
 
     return Scaffold(
@@ -378,15 +376,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ? '動物園機能がOFFのためマップは表示されません'
                   : RuntimeCompatibility.disableMapbox
                       ? (RuntimeCompatibility.mapboxDisableReason ??
-                          '現在はマップを表示できません')
+                          '現在はマップはプレースホルダー表示です')
                       : '非表示にするとカメラとアルバムだけになります',
               trailing: Switch(
-                value: debugSettings.zooFeaturesEnabled &&
-                        !RuntimeCompatibility.disableMapbox
+                value: debugSettings.zooFeaturesEnabled
                     ? ref.watch(addonTabsVisibilityProvider).showMap
                     : false,
-                onChanged: (!debugSettings.zooFeaturesEnabled ||
-                        RuntimeCompatibility.disableMapbox)
+                onChanged: !debugSettings.zooFeaturesEnabled
                     ? null
                     : (value) => ref
                         .read(addonTabsVisibilityProvider.notifier)
@@ -397,12 +393,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             _SettingsTile(
               title: '図鑑タブを表示',
-              subtitle: '設定からいつでも表示 / 非表示を切り替えられます',
+              subtitle: !debugSettings.zooFeaturesEnabled
+                  ? '動物園機能がOFFのため図鑑は表示されません'
+                  : '設定からいつでも表示 / 非表示を切り替えられます',
               trailing: Switch(
-                value: ref.watch(addonTabsVisibilityProvider).showZukan,
-                onChanged: (value) => ref
-                    .read(addonTabsVisibilityProvider.notifier)
-                    .setZukanVisible(value),
+                value: debugSettings.zooFeaturesEnabled
+                    ? ref.watch(addonTabsVisibilityProvider).showZukan
+                    : false,
+                onChanged: !debugSettings.zooFeaturesEnabled
+                    ? null
+                    : (value) => ref
+                        .read(addonTabsVisibilityProvider.notifier)
+                        .setZukanVisible(value),
                 activeThumbColor: Colors.white,
                 inactiveTrackColor: Colors.white12,
               ),
