@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/config/debug_settings.dart';
 import '../../core/config/ai_memory_assist.dart';
@@ -930,13 +931,15 @@ class _InstantSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final previewPhotos = photos.take(12).toList();
+    final baseSession =
+        activeSession?.session ?? (photos.isNotEmpty ? photos.first.session : null);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionHeader(
-          title: 'インスタント',
-          subtitle: 'iPhone の写真やデジカメみたいに、撮った順で気軽に見返す。',
+          title: 'インスタント（下書き）',
+          subtitle: 'まずは気軽に撮って、あとでフィルムロールにまとめる。',
         ),
         const SizedBox(height: 12),
         Container(
@@ -997,8 +1000,8 @@ class _InstantSection extends ConsumerWidget {
               const SizedBox(height: 6),
               Text(
                 photos.isEmpty
-                    ? 'まだインスタントの写真はありません。撮るとここへ普通のアルバムのように並びます。'
-                    : '${photos.length} 枚を新しい順に並べています。',
+                    ? 'まだインスタントの写真はありません。撮るとここへ並びます。'
+                    : '${photos.length} 枚を新しい順に並べています。フィルムにまとめて保存できます。',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.52),
                   fontSize: 12,
@@ -1027,14 +1030,117 @@ class _InstantSection extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: FilledButton(
+                      onPressed: (photos.isEmpty || baseSession == null)
+                          ? null
+                          : () async {
+                              final ok = await showDialog<bool>(
+                                context: context,
+                                builder: (dialogContext) => AlertDialog(
+                                  backgroundColor: const Color(0xFF141414),
+                                  title: const Text(
+                                    'フィルムにまとめる',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  content: const Text(
+                                    'インスタントの写真を27枚のフィルムロールとしてまとめます。インデックスシートも生成されます。',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      height: 1.6,
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dialogContext, false),
+                                      child: const Text('戻る'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dialogContext, true),
+                                      child: const Text('まとめる'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (ok != true) return;
+
+                              final newSession = FilmSession(
+                                sessionId: const Uuid().v4(),
+                                title: baseSession!.title,
+                                locationName: baseSession.locationName,
+                                lat: baseSession.lat,
+                                lng: baseSession.lng,
+                                zooId: baseSession.zooId,
+                                date: DateTime.now(),
+                                theme: baseSession.theme,
+                                memo: baseSession.memo,
+                                status: FilmStatus.developed,
+                                captureMode: CaptureMode.film,
+                                photoCount: photos.length,
+                              );
+
+                              await DatabaseHelper.insertFilmSession(newSession);
+                              await DatabaseHelper.movePhotosToSession(
+                                fromSessionId: baseSession.sessionId,
+                                toSessionId: newSession.sessionId,
+                              );
+
+                              final movedPhotos = await DatabaseHelper
+                                  .getPhotosForSession(newSession.sessionId);
+                              final indexPath =
+                                  await ContactSheetService.generate(
+                                session: newSession,
+                                photos: movedPhotos,
+                                format: ContactSheetFormat.indexSheet,
+                                persist: true,
+                              );
+                              await DatabaseHelper.updateFilmSession(
+                                newSession.copyWith(indexSheetPath: indexPath),
+                              );
+
+                              await DatabaseHelper.updateFilmSession(
+                                baseSession.copyWith(
+                                  status: FilmStatus.shelved,
+                                  photoCount: 0,
+                                ),
+                              );
+
+                              if (context.mounted) {
+                                ref
+                                    .read(mainTabIndexProvider.notifier)
+                                    .state = 1;
+                                ref.invalidate(albumOverviewProvider);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('フィルムロールにまとめました。'),
+                                    duration:
+                                        Duration(milliseconds: 1500),
+                                  ),
+                                );
+                              }
+                            },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                      child: const Text(
+                        'フィルムにまとめる',
+                        style: TextStyle(letterSpacing: 1.2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
                       onPressed: activeSession == null
                           ? null
                           : () {
                               ref.read(mainTabIndexProvider.notifier).state = 0;
                             },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
                         padding: const EdgeInsets.symmetric(vertical: 13),
                       ),
                       child: const Text(
@@ -1043,33 +1149,26 @@ class _InstantSection extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: photos.isEmpty
-                          ? null
-                          : () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => _InstantAlbumScreen(
-                                    photos: photos,
-                                  ),
-                                ),
-                              );
-                            },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                      ),
-                      child: const Text(
-                        '一覧で見る',
-                        style: TextStyle(letterSpacing: 1.2),
-                      ),
-                    ),
-                  ),
                 ],
               ),
+              if (photos.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => _InstantAlbumScreen(
+                            photos: photos,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('一覧で見る'),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
