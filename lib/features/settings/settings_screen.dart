@@ -333,13 +333,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             if (debugSettings.enabled) ...[
               _SettingsTile(
-                title: '動物園機能',
-                subtitle: 'チェックイン/マップなど動物園機能をまとめてON/OFF',
-                trailing: Switch(
-                  value: debugSettings.zooFeaturesEnabled,
-                  onChanged: (value) => ref
-                      .read(debugSettingsProvider.notifier)
-                      .setZooFeaturesEnabled(value),
+              title: '場所機能',
+              subtitle: 'チェックイン/マップなど場所機能をまとめてON/OFF',
+              trailing: Switch(
+                value: debugSettings.zooFeaturesEnabled,
+                onChanged: (value) => ref
+                    .read(debugSettingsProvider.notifier)
+                    .setZooFeaturesEnabled(value),
                   activeThumbColor: Colors.white,
                   inactiveTrackColor: Colors.white12,
                 ),
@@ -373,7 +373,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _SettingsTile(
               title: 'マップタブを表示',
               subtitle: !debugSettings.zooFeaturesEnabled
-                  ? '動物園機能がOFFのためマップは表示されません'
+                  ? '場所機能がOFFのためマップは表示されません'
                   : RuntimeCompatibility.disableMapbox
                       ? (RuntimeCompatibility.mapboxDisableReason ??
                           '現在はマップはプレースホルダー表示です')
@@ -394,7 +394,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _SettingsTile(
               title: '図鑑タブを表示',
               subtitle: !debugSettings.zooFeaturesEnabled
-                  ? '動物園機能がOFFのため図鑑は表示されません'
+                  ? '場所機能がOFFのため図鑑は表示されません'
                   : '設定からいつでも表示 / 非表示を切り替えられます',
               trailing: Switch(
                 value: debugSettings.zooFeaturesEnabled

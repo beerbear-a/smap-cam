@@ -856,7 +856,7 @@ class _AlbumEmptyState extends ConsumerWidget {
                   : () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('動物園機能はデバッグ設定でOFFになっています。'),
+                          content: Text('場所機能はデバッグ設定でOFFになっています。'),
                           duration: Duration(milliseconds: 1400),
                         ),
                       );

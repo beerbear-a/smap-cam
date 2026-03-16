@@ -505,7 +505,7 @@ class _EmptyState extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             const Text(
-              '動物園へ行ってシャッターを切ってみよう',
+              '場所へ行ってシャッターを切ってみよう',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white24,
@@ -521,7 +521,7 @@ class _EmptyState extends ConsumerWidget {
                 if (!debugSettings.zooFeaturesEnabled) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('動物園機能はデバッグ設定でOFFになっています。'),
+                      content: Text('場所機能はデバッグ設定でOFFになっています。'),
                       duration: Duration(milliseconds: 1400),
                     ),
                   );

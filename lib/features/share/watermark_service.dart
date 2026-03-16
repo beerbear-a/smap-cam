@@ -25,7 +25,7 @@ enum WatermarkPosition {
 /// WatermarkService
 ///
 /// 写真に透かしを合成してテンポラリPNGとして返す。
-/// 透かし形式: `@username · 動物園名 · ZOOSMAP`
+/// 透かし形式: `@username · 場所名 · ZOOSMAP`
 class WatermarkService {
   WatermarkService._();
 

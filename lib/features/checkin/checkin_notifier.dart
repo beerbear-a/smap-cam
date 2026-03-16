@@ -38,7 +38,7 @@ class CheckInNotifier extends StateNotifier<CheckInState> {
 
   final AnimalRepository _animalRepository;
 
-  /// GPS で近くの動物園を検索
+  /// GPS で近くの場所を検索
   Future<void> detectNearbyZoos() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {

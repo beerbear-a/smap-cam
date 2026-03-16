@@ -219,6 +219,19 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                       setState(() => _showLutPanel = !_showLutPanel);
                     },
                   ),
+                  _SheetRow(
+                    icon: Icons.layers_outlined,
+                    label: 'フィルムビュー',
+                    trailing: Switch(
+                      value: cs.filmPreviewEnabled,
+                      onChanged: (_) {
+                        ref.read(cameraProvider.notifier).toggleFilmPreview();
+                        setSheetState(() {});
+                      },
+                      activeThumbColor: Colors.white,
+                      inactiveTrackColor: Colors.white12,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -571,7 +584,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     if (!debugSettings.zooFeaturesEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('動物園機能はデバッグ設定でOFFになっています。'),
+          content: Text('場所機能はデバッグ設定でOFFになっています。'),
           duration: Duration(milliseconds: 1400),
         ),
       );
@@ -604,6 +617,22 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
           Future.delayed(const Duration(milliseconds: 2500), () {
             if (mounted) ref.read(cameraProvider.notifier).clearError();
           });
+        }
+      },
+    );
+
+    // 自動メモの通知
+    ref.listen<String?>(
+      cameraProvider.select((s) => s.autoMemoNotice),
+      (prev, next) {
+        if (next != null && prev != next) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(next),
+              duration: const Duration(milliseconds: 1800),
+            ),
+          );
+          ref.read(cameraProvider.notifier).clearAutoMemoNotice();
         }
       },
     );
@@ -689,6 +718,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           lutActive: showLutPanel,
                           showLutButton: cs.isCameraReady,
                           flashActive: cs.flashEnabled,
+                          filmViewActive: cs.filmPreviewEnabled,
                           onToggle: () {
                             HapticFeedback.selectionClick();
                             setState(
@@ -711,6 +741,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                             setState(() {
                               _showLutPanel = !_showLutPanel;
                             });
+                          },
+                          onFilmViewTap: () {
+                            HapticFeedback.selectionClick();
+                            ref
+                                .read(cameraProvider.notifier)
+                                .toggleFilmPreview();
                           },
                           onFlashTap: () {
                             HapticFeedback.selectionClick();
@@ -853,14 +889,19 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    FilmShaderImage(
-                      imagePath: previewPath,
-                      lutType: effectiveLut,
-                      lutIntensity: effectiveLutIntensity,
-                      shaderAssetOverride: cs.filmShaderAssetOverride,
-                      fit: BoxFit.cover,
-                      animateGrain: true,
-                    ),
+                    cs.filmPreviewEnabled
+                        ? FilmShaderImage(
+                            imagePath: previewPath,
+                            lutType: effectiveLut,
+                            lutIntensity: effectiveLutIntensity,
+                            shaderAssetOverride: cs.filmShaderAssetOverride,
+                            fit: BoxFit.cover,
+                            animateGrain: true,
+                          )
+                        : Image.file(
+                            File(previewPath),
+                            fit: BoxFit.cover,
+                          ),
                     if (cs.showGrid)
                       const IgnorePointer(
                         child: CustomPaint(painter: GridPainter()),
@@ -872,15 +913,49 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     }
 
     // Real camera: no scale transform — iOS/Android driver handles lens switching.
-    return FilmPreviewWidget(
-      textureId: cs.textureId!,
-      lutType: effectiveLut,
-      lutIntensity: effectiveLutIntensity,
-      showGrid: cs.showGrid,
-      lightLeak: cs.lightLeak,
+    if (cs.filmPreviewEnabled) {
+      return FilmPreviewWidget(
+        textureId: cs.textureId!,
+        lutType: effectiveLut,
+        lutIntensity: effectiveLutIntensity,
+        showGrid: cs.showGrid,
+        lightLeak: cs.lightLeak,
+        onTapUp: _onTapUp,
+        focusIndicator: _focusPoint != null
+            ? Positioned(
+                left: _focusPoint!.dx - 32,
+                top: _focusPoint!.dy - 32,
+                child: AnimatedBuilder(
+                  animation: _focusController,
+                  builder: (_, __) => Transform.scale(
+                    scale: _focusScale.value,
+                    child: Opacity(
+                      opacity: _focusOpacity.value,
+                      child: SizedBox(
+                        width: 64,
+                        height: 64,
+                        child: CustomPaint(painter: _FocusReticlePainter()),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            : null,
+      );
+    }
+
+    return GestureDetector(
       onTapUp: _onTapUp,
-      focusIndicator: _focusPoint != null
-          ? Positioned(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Texture(textureId: cs.textureId!),
+          if (cs.showGrid)
+            const IgnorePointer(
+              child: CustomPaint(painter: GridPainter()),
+            ),
+          if (_focusPoint != null)
+            Positioned(
               left: _focusPoint!.dx - 32,
               top: _focusPoint!.dy - 32,
               child: AnimatedBuilder(
@@ -897,8 +972,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                   ),
                 ),
               ),
-            )
-          : null,
+            ),
+        ],
+      ),
     );
   }
 }
@@ -2414,10 +2490,12 @@ class _ControlDock extends StatelessWidget {
   final bool lutActive;
   final bool showLutButton;
   final bool flashActive;
+  final bool filmViewActive;
   final VoidCallback onToggle;
   final VoidCallback onAspectRatioTap;
   final VoidCallback onTimerTap;
   final VoidCallback onLutTap;
+  final VoidCallback onFilmViewTap;
   final VoidCallback onFlashTap;
   final VoidCallback onSettingsTap;
 
@@ -2429,10 +2507,12 @@ class _ControlDock extends StatelessWidget {
     required this.lutActive,
     required this.showLutButton,
     required this.flashActive,
+    required this.filmViewActive,
     required this.onToggle,
     required this.onAspectRatioTap,
     required this.onTimerTap,
     required this.onLutTap,
+    required this.onFilmViewTap,
     required this.onFlashTap,
     required this.onSettingsTap,
   });
@@ -2496,6 +2576,13 @@ class _ControlDock extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                           ],
+                          _DockButton(
+                            icon: Icons.layers_outlined,
+                            label: 'VIEW',
+                            active: filmViewActive,
+                            onTap: onFilmViewTap,
+                          ),
+                          const SizedBox(height: 8),
                           _DockButton(
                             icon:
                                 flashActive ? Icons.flash_on : Icons.flash_off,
