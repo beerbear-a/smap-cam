@@ -10,6 +10,7 @@ import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/services/camera_service.dart';
+import '../../core/config/debug_settings.dart';
 import 'film_still_service.dart';
 import 'widgets/film_preview.dart';
 
@@ -130,6 +131,7 @@ class CameraState {
   final String? simulatorPreviewPath;
   final AspectRatioMode aspectRatio;
   final FocalLength focalLength;
+  final String? filmShaderAssetOverride;
 
   // NOTE: シャッター音OFFは日本国内では盗撮規制法により禁止。
   // iOS（日本向けモデル）はAVFoundationレベルで強制ON、
@@ -153,6 +155,7 @@ class CameraState {
     this.simulatorPreviewPath,
     this.aspectRatio = AspectRatioMode.r4_3,
     this.focalLength = FocalLength.f35,
+    this.filmShaderAssetOverride,
   });
 
   int get remainingShots =>
@@ -188,6 +191,8 @@ class CameraState {
     String? simulatorPreviewPath,
     AspectRatioMode? aspectRatio,
     FocalLength? focalLength,
+    String? filmShaderAssetOverride,
+    bool clearFilmShaderAssetOverride = false,
     bool clearCompletedRollSession = false,
   }) {
     return CameraState(
@@ -211,6 +216,9 @@ class CameraState {
       simulatorPreviewPath: simulatorPreviewPath ?? this.simulatorPreviewPath,
       aspectRatio: aspectRatio ?? this.aspectRatio,
       focalLength: focalLength ?? this.focalLength,
+      filmShaderAssetOverride: clearFilmShaderAssetOverride
+          ? null
+          : filmShaderAssetOverride ?? this.filmShaderAssetOverride,
     );
   }
 }
@@ -232,7 +240,17 @@ final photoPathsProvider =
 
 class CameraNotifier extends StateNotifier<CameraState> {
   final Ref _ref;
-  CameraNotifier(this._ref) : super(const CameraState());
+  CameraNotifier(this._ref) : super(const CameraState()) {
+    _ref.listen<DebugSettings>(debugSettingsProvider, (prev, next) {
+      if (prev?.filmShaderAssetOverride == next.filmShaderAssetOverride) {
+        return;
+      }
+      state = state.copyWith(
+        filmShaderAssetOverride: next.filmShaderAssetOverride,
+        clearFilmShaderAssetOverride: next.filmShaderAssetOverride == null,
+      );
+    });
+  }
 
   Timer? _timerTick;
 
@@ -544,6 +562,7 @@ class CameraNotifier extends StateNotifier<CameraState> {
             outputPath: bakedPath,
             lutType: state.selectedLut,
             intensity: state.lutIntensity,
+            shaderAssetOverride: state.filmShaderAssetOverride,
           );
           final rawFile = File(savePath);
           if (rawFile.existsSync()) {

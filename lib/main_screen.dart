@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/config/debug_settings.dart';
 import 'core/config/runtime_compatibility.dart';
 import 'core/models/film_session.dart';
 import 'core/navigation/main_tab_provider.dart';
@@ -111,7 +112,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final showLabels = ref.watch(navigationLabelsVisibleProvider);
     final currentIndex = ref.watch(mainTabIndexProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
-    final showMapTab = addonTabs.showMap && !RuntimeCompatibility.disableMapbox;
+    final debugSettings = ref.watch(debugSettingsProvider);
+    final showMapTab = addonTabs.showMap &&
+        debugSettings.zooFeaturesEnabled &&
+        !RuntimeCompatibility.disableMapbox;
     const showZukan = false;
     final isCurrentTabHidden =
         (currentIndex == 2 && !showMapTab) || (currentIndex == 3 && !showZukan);

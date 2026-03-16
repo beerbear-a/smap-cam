@@ -35,7 +35,7 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>写真を保存するためにフォトライブラリへのアクセスが必要です</string>
 	<key>SMAPDisableMapboxPlugin</key>
-	<false/>
+	<true/>
 	<key>SMAPForceEnableMapboxPlugin</key>
 	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

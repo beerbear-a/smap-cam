@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/debug_settings.dart';
 import '../../core/config/ai_memory_assist.dart';
 import '../../core/config/experience_rules.dart';
 import '../../core/database/database_helper.dart';
@@ -799,11 +800,12 @@ class _MemoryJournalCard extends StatelessWidget {
   }
 }
 
-class _AlbumEmptyState extends StatelessWidget {
+class _AlbumEmptyState extends ConsumerWidget {
   const _AlbumEmptyState();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final debugSettings = ref.watch(debugSettingsProvider);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -845,11 +847,20 @@ class _AlbumEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 22),
             FilledButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  DarkFadeRoute(page: const CheckInScreen()),
-                );
-              },
+              onPressed: debugSettings.zooFeaturesEnabled
+                  ? () {
+                      Navigator.of(context).push(
+                        DarkFadeRoute(page: const CheckInScreen()),
+                      );
+                    }
+                  : () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('動物園機能はデバッグ設定でOFFになっています。'),
+                          duration: Duration(milliseconds: 1400),
+                        ),
+                      );
+                    },
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,

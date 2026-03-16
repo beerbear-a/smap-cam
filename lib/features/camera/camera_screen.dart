@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/config/debug_settings.dart';
 import '../../core/config/experience_rules.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/mock/mock_photo_library.dart';
@@ -204,7 +205,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                       },
                     ),
                   ),
-                  // LUTフィルム
+                  // フィルム
                   if (canEditInstantLook)
                     _SheetRow(
                       icon: Icons.photo_filter,
@@ -347,9 +348,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                 },
                 onOpenCheckIn: () {
                   Navigator.pop(dialogContext);
-                  Navigator.of(context).push(
-                    DarkFadeRoute(page: const CheckInScreen()),
-                  );
+                  _openCheckIn(context);
                 },
                 onStartInstant: () async {
                   Navigator.pop(dialogContext);
@@ -437,9 +436,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
               if (!mounted) return;
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                Navigator.of(context).push(
-                  DarkFadeRoute(page: const CheckInScreen()),
-                );
+                _openCheckIn(context);
               });
             },
             child: const Text('フィルムを作る'),
@@ -516,9 +513,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                     // clearCompletedRollPrompt はここではしない。
                     // CheckInScreen で新フィルムが作成 → loadActiveSession が
                     // 自動クリアする。戻るだけなら overlay を維持する。
-                    Navigator.of(context).push(
-                      DarkFadeRoute(page: const CheckInScreen()),
-                    );
+                    _openCheckIn(context);
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.white,
@@ -567,9 +562,26 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     );
   }
 
+  void _openCheckIn(BuildContext context) {
+    final debugSettings = ref.read(debugSettingsProvider);
+    if (!debugSettings.zooFeaturesEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('動物園機能はデバッグ設定でOFFになっています。'),
+          duration: Duration(milliseconds: 1400),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      DarkFadeRoute(page: const CheckInScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = ref.watch(cameraProvider);
+    final debugSettings = ref.watch(debugSettingsProvider);
     final screenHeight = MediaQuery.sizeOf(context).height;
     final isCompactHeight = screenHeight < 760;
     final canEditInstantLook = cs.activeSession?.isInstantMode == true;
@@ -591,12 +603,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     // ロール完了時は _RollCompletedOverlay がビューファインダーに表示される。
     // 自動でボトムシートを出すと二重表示になるため auto-trigger を廃止。
     // ユーザーは Overlay の「次のステップへ」ボタンからシートを開く。
-
-    void openCheckIn() {
-      Navigator.of(context).push(
-        DarkFadeRoute(page: const CheckInScreen()),
-      );
-    }
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -734,7 +740,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         )
                       else if (cs.activeSession == null)
                         _NoFilmLoadedHint(
-                          onStartTap: openCheckIn,
+                          onStartTap: debugSettings.zooFeaturesEnabled
+                              ? () => _openCheckIn(context)
+                              : null,
                           onInstantTap: () async {
                             await ref
                                 .read(cameraProvider.notifier)
@@ -833,16 +841,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
         child: previewPath == null
             ? const SizedBox.expand(child: MockPhotoView())
             : SizedBox.expand(
-                child: FilmProcessedSurface(
+                child: FilmShaderImage(
+                  imagePath: previewPath,
                   lutType: effectiveLut,
                   lutIntensity: effectiveLutIntensity,
-                  animated: true,
-                  child: Image.file(
-                    File(previewPath),
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    errorBuilder: (_, __, ___) => const MockPhotoView(),
-                  ),
+                  shaderAssetOverride: cs.filmShaderAssetOverride,
+                  fit: BoxFit.cover,
+                  animateGrain: true,
                 ),
               ),
       );
@@ -971,7 +976,7 @@ class _SessionIndicator extends StatelessWidget {
 }
 
 class _NoFilmLoadedHint extends StatelessWidget {
-  final VoidCallback onStartTap;
+  final VoidCallback? onStartTap;
   final Future<void> Function() onInstantTap;
 
   const _NoFilmLoadedHint({
@@ -2462,7 +2467,7 @@ class _ControlDock extends StatelessWidget {
                           if (showLutButton) ...[
                             _DockButton(
                               icon: Icons.photo_filter,
-                              label: 'LUT',
+                              label: 'FILM',
                               active: lutActive,
                               onTap: onLutTap,
                             ),
@@ -2571,7 +2576,7 @@ class _DockButton extends StatelessWidget {
   }
 }
 
-// ── LUT強度スライダー ─────────────────────────────────────────
+// ── フィルム強度スライダー ────────────────────────────────────
 
 class _LutIntensitySlider extends StatelessWidget {
   final double value;

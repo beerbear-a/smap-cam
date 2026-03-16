@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/ai_connection_settings.dart';
 import '../../core/config/ai_memory_assist.dart';
+import '../../core/config/debug_settings.dart';
 import '../../core/config/runtime_compatibility.dart';
 import '../../core/config/pro_access.dart';
 import '../../core/database/database_helper.dart';
@@ -171,8 +172,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final aiConnection = ref.watch(aiConnectionSettingsProvider);
     final aiSettings = ref.watch(aiMemoryAssistSettingsProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
+    final debugSettings = ref.watch(debugSettingsProvider);
     final effectiveAddonTabs = addonTabs.copyWith(
-      showMap: addonTabs.showMap && !RuntimeCompatibility.disableMapbox,
+      showMap: addonTabs.showMap &&
+          debugSettings.zooFeaturesEnabled &&
+          !RuntimeCompatibility.disableMapbox,
     );
 
     return Scaffold(
@@ -316,6 +320,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(color: Colors.white12, height: 1),
             ],
 
+            const _SectionHeader(title: 'デバッグ'),
+            _SettingsTile(
+              title: 'デバッグモード',
+              subtitle: '検証用の設定を表示します',
+              trailing: Switch(
+                value: debugSettings.enabled,
+                onChanged: (value) => ref
+                    .read(debugSettingsProvider.notifier)
+                    .setEnabled(value),
+                activeThumbColor: Colors.white,
+                inactiveTrackColor: Colors.white12,
+              ),
+            ),
+            if (debugSettings.enabled) ...[
+              _SettingsTile(
+                title: '動物園機能',
+                subtitle: 'チェックイン/マップなど動物園機能をまとめてON/OFF',
+                trailing: Switch(
+                  value: debugSettings.zooFeaturesEnabled,
+                  onChanged: (value) => ref
+                      .read(debugSettingsProvider.notifier)
+                      .setZooFeaturesEnabled(value),
+                  activeThumbColor: Colors.white,
+                  inactiveTrackColor: Colors.white12,
+                ),
+              ),
+              _SettingsTile(
+                title: 'フィルムシェーダー',
+                subtitle: 'プレビュー/焼き込みに使うシェーダーを切り替え',
+                trailing: _DebugShaderSelector(
+                  value: debugSettings.filmShaderAssetOverride,
+                  onChanged: (value) => ref
+                      .read(debugSettingsProvider.notifier)
+                      .setFilmShaderAssetOverride(value),
+                ),
+              ),
+            ],
+            const Divider(color: Colors.white12, height: 1),
+
             const _SectionHeader(title: '表示'),
             _SettingsTile(
               title: 'タブ名を表示',
@@ -331,15 +374,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             _SettingsTile(
               title: 'マップタブを表示',
-              subtitle: RuntimeCompatibility.disableMapbox
-                  ? (RuntimeCompatibility.mapboxDisableReason ??
-                      '現在はマップを表示できません')
-                  : '非表示にするとカメラとアルバムだけになります',
+              subtitle: !debugSettings.zooFeaturesEnabled
+                  ? '動物園機能がOFFのためマップは表示されません'
+                  : RuntimeCompatibility.disableMapbox
+                      ? (RuntimeCompatibility.mapboxDisableReason ??
+                          '現在はマップを表示できません')
+                      : '非表示にするとカメラとアルバムだけになります',
               trailing: Switch(
-                value: RuntimeCompatibility.disableMapbox
-                    ? false
-                    : ref.watch(addonTabsVisibilityProvider).showMap,
-                onChanged: RuntimeCompatibility.disableMapbox
+                value: debugSettings.zooFeaturesEnabled &&
+                        !RuntimeCompatibility.disableMapbox
+                    ? ref.watch(addonTabsVisibilityProvider).showMap
+                    : false,
+                onChanged: (!debugSettings.zooFeaturesEnabled ||
+                        RuntimeCompatibility.disableMapbox)
                     ? null
                     : (value) => ref
                         .read(addonTabsVisibilityProvider.notifier)
@@ -1251,6 +1298,39 @@ class _ShelvedFilmRestoreTile extends ConsumerWidget {
           }).toList(),
         );
       },
+    );
+  }
+}
+
+class _DebugShaderSelector extends StatelessWidget {
+  final String? value;
+  final ValueChanged<String?> onChanged;
+
+  const _DebugShaderSelector({
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 170),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          value: value,
+          isDense: true,
+          dropdownColor: const Color(0xFF1A1A1A),
+          iconEnabledColor: Colors.white54,
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+          items: debugFilmShaderOptions.entries.map((entry) {
+            return DropdownMenuItem<String?>(
+              value: entry.value,
+              child: Text(entry.key),
+            );
+          }).toList(),
+          onChanged: onChanged,
+        ),
+      ),
     );
   }
 }

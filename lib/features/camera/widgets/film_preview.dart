@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../../core/config/runtime_compatibility.dart';
+import '../../../shader/fragment_program_cache.dart';
 
 // ── Film Stock Definitions ───────────────────────────────────
 
@@ -69,29 +70,29 @@ enum LutType {
       // 特性: 暖色・シャドウ持ち上げ・blue圧縮・ミルキーハイライト
       case LutType.natural:
         return [
-          1.08, 0.04, -0.01, 0, 14, // R': 赤ブースト + 緑クロス + 暖色
-          0.01, 0.96, 0.02, 0, 5, // G': ニュートラル
-          -0.02, 0.00, 0.83, 0, -14, // B': blue圧縮（写ルんです最大の特徴）
+          1.06, 0.04, -0.02, 0, 18, // R': 赤ブースト + 暖色床
+          0.01, 0.95, 0.02, 0, 8, // G': わずかに抑えてミルキー寄り
+          -0.03, 0.00, 0.78, 0, -10, // B': blue圧縮 + 影の沈み
           0, 0, 0, 1, 0,
         ];
       // ── ゴールデンアワー ─────────────────────────────────────────────────
       case LutType.warm:
         return [
-          1.16,
-          0.07,
-          -0.03,
+          1.12,
+          0.06,
+          -0.04,
           0,
-          24,
+          30,
           0.02,
-          0.97,
-          0.01,
+          0.95,
+          0.02,
           0,
-          10,
-          -0.06,
+          14,
+          -0.07,
           0.00,
-          0.76,
+          0.70,
           0,
-          -22,
+          -26,
           0,
           0,
           0,
@@ -105,21 +106,21 @@ enum LutType {
       //   シアン-緑の floor 感は保ちつつ gain を抑えて blowout を防ぐ。
       case LutType.fuji:
         return [
-          0.90,  // R←R: 赤を引いてシアン感
+          0.88,  // R←R: 赤を引いてシアン感
           -0.02,
           0.00,
           0,
-          -4,    // R bias: 暗部の赤を少し沈める
+          -6,    // R bias: 暗部の赤を少し沈める
           0.00,
-          1.04,  // G←G: 控えめな緑ブースト
+          1.05,  // G←G: 控えめな緑ブースト
           0.02,
           0,
-          5,     // G bias: 12→5（blowout 防止）
+          8,     // G bias: floor を少し残す
           0.02,
           0.02,
-          1.00,  // B←B: ゲインを 1.10→1.00 に戻す
+          1.02,  // B←B: 青を少し戻して空の抜けを保つ
           0,
-          8,     // B bias: 18→8（blowout 防止）
+          10,     // B bias: cyan床
           0,
           0,
           0,
@@ -163,40 +164,50 @@ enum LutType {
         // 参照: 屋外動物写真（うさぎ・緑・陽光）— milkyHighlights を抑えて
         // ハイライトを自然に、saturation を少し上げてビビッドな自然色に
         return const FilmShaderParams(
-          warmth: 0.85,
-          saturation: 0.96,
-          shadowLift: 0.52,
-          highlightRolloff: 0.72,
-          grainAmount: 0.82,
+          warmth: 0.82,
+          saturation: 0.90,
+          shadowLift: 0.62,
+          highlightRolloff: 0.82,
+          grainAmount: 0.88,
           vignetteStrength: 0.72,
-          halationStrength: 0.60,
-          softness: 0.50,
-          chromaticAberration: 0.55,
-          milkyHighlights: 0.65,
-          contrast: -0.02,
-          blueCrush: 0.18,
-          halationWarmth: 0.75,
-          grainSize: 2.0,
+          halationStrength: 0.58,
+          softness: 0.60,
+          chromaticAberration: 0.52,
+          milkyHighlights: 0.84,
+          contrast: -0.10,
+          blueCrush: 0.24,
+          halationWarmth: 0.84,
+          grainSize: 2.05,
+          distortion: 0.085,
+          shadowDesat: 0.92,
+          colorSplit: 1.0,
+          crossover: 1.0,
+          bloomStrength: 0.48,
         );
       case LutType.warm:
         // Kodak Gold 期限切れ: 暖かい室内・ゴールデンシャドウ
         // 参照: ラーメン店内写真 — ハイライト（白い器）がクリーンに出るよう
         // milkyHighlights を抑制
         return const FilmShaderParams(
-          warmth: 1.0,
-          saturation: 0.88,
-          shadowLift: 0.50,
-          highlightRolloff: 0.78,
-          grainAmount: 0.75,
-          vignetteStrength: 0.78,
-          halationStrength: 0.80,
-          softness: 0.58,
-          chromaticAberration: 0.52,
-          milkyHighlights: 0.72,
-          contrast: -0.08,
-          blueCrush: 0.25,
+          warmth: 1.05,
+          saturation: 0.84,
+          shadowLift: 0.58,
+          highlightRolloff: 0.82,
+          grainAmount: 0.90,
+          vignetteStrength: 0.82,
+          halationStrength: 0.86,
+          softness: 0.62,
+          chromaticAberration: 0.56,
+          milkyHighlights: 0.82,
+          contrast: -0.12,
+          blueCrush: 0.28,
           halationWarmth: 1.0,
-          grainSize: 2.0,
+          grainSize: 2.2,
+          distortion: 0.10,
+          shadowDesat: 0.95,
+          colorSplit: 1.0,
+          crossover: 0.85,
+          bloomStrength: 0.62,
         );
       case LutType.fuji:
         // v3: 白飛びバグ修正 + Fuji 400 実写参照チューニング
@@ -208,70 +219,98 @@ enum LutType {
         //   milkyHighlights 0.45→0.28: ハイライトのクリーン感を維持
         //   saturation 1.18→1.10: Fuji らしいビビッドさを保ちつつ自然に
         return const FilmShaderParams(
-          warmth: 0.20,
-          saturation: 1.10,
-          shadowLift: 0.40,
-          highlightRolloff: 0.60,
-          grainAmount: 0.82,
-          vignetteStrength: 0.55,
-          halationStrength: 0.40,
-          softness: 0.30,
-          chromaticAberration: 0.30,
-          milkyHighlights: 0.28,
-          contrast: 0.06,
-          blueCrush: 0.02,
-          halationWarmth: 0.12,
-          grainSize: 1.6,
+          warmth: 0.18,
+          saturation: 1.08,
+          shadowLift: 0.34,
+          highlightRolloff: 0.56,
+          grainAmount: 0.78,
+          vignetteStrength: 0.52,
+          halationStrength: 0.30,
+          softness: 0.26,
+          chromaticAberration: 0.26,
+          milkyHighlights: 0.24,
+          contrast: 0.08,
+          blueCrush: -0.06,
+          halationWarmth: 0.08,
+          grainSize: 1.5,
+          distortion: 0.06,
+          shadowDesat: 0.18,
+          colorSplit: 0.40,
+          crossover: 0.30,
+          bloomStrength: 0.18,
         );
       case LutType.mono:
         return const FilmShaderParams(
           warmth: 0.0,
           saturation: 0.0,
-          shadowLift: 0.45,
-          highlightRolloff: 0.70,
-          grainAmount: 1.00,
-          vignetteStrength: 0.85,
-          halationStrength: 0.40,
-          softness: 0.50,
+          shadowLift: 0.50,
+          highlightRolloff: 0.74,
+          grainAmount: 1.05,
+          vignetteStrength: 0.88,
+          halationStrength: 0.36,
+          softness: 0.54,
           chromaticAberration: 0.0,
-          milkyHighlights: 0.60,
-          contrast: 0.15,
+          milkyHighlights: 0.66,
+          contrast: 0.12,
           blueCrush: 0.0,
           halationWarmth: 0.0,
-          grainSize: 1.8,
+          grainSize: 1.9,
+          distortion: 0.05,
+          shadowDesat: 0.0,
+          colorSplit: 0.0,
+          crossover: 0.0,
+          bloomStrength: 0.46,
         );
       // {{LUT_SHADERPARAMS}}
     }
   }
 
   /// 静止画用 GLSL シェーダーアセットパス
-  /// LUT ごとに専用シェーダーを持つことで、乳剤特性の差を正確に再現する。
+  /// 統合パイプラインで LUT ごとのパラメータ差を表現する。
   String get shaderAsset {
-    switch (this) {
-      case LutType.natural:
-        return 'shaders/film_iso800.frag'; // 写ルんです QuickSnap ISO800
-      case LutType.warm:
-        return 'shaders/film_warm.frag'; // Kodak Gold / 期限切れフィルム
-      case LutType.fuji:
-        return 'shaders/film_fuji400.frag'; // Fujifilm Superia 400
-      case LutType.mono:
-        return 'shaders/film_mono_hp5.frag'; // Ilford HP5 Plus 400
-      // {{LUT_SHADERASSET}}
-    }
+    return 'shaders/film_pipeline.frag';
   }
 
   /// ビネットの強度（ライブプレビュー用 CustomPainter）
   double get vignetteStrength {
     switch (this) {
       case LutType.natural:
-        return 0.52;
+        return 0.56;
       case LutType.warm:
-        return 0.58;
+        return 0.62;
       case LutType.fuji:
-        return 0.48; // 0.38 → 0.48: Dazz 相当の締まり感
+        return 0.50; // 0.38 → 0.50: Dazz 相当の締まり感
       case LutType.mono:
-        return 0.68;
+        return 0.70;
       // {{LUT_VIGNETTE}}
+    }
+  }
+
+  Color get previewFogColor {
+    switch (this) {
+      case LutType.natural:
+        return const Color(0xFFF6E7D2);
+      case LutType.warm:
+        return const Color(0xFFF2C18A);
+      case LutType.fuji:
+        return const Color(0xFFD9EFEA);
+      case LutType.mono:
+        return const Color(0xFFEFEFEF);
+      // {{LUT_FOG_COLOR}}
+    }
+  }
+
+  double get previewFogStrength {
+    switch (this) {
+      case LutType.natural:
+        return 0.06;
+      case LutType.warm:
+        return 0.10;
+      case LutType.fuji:
+        return 0.05;
+      case LutType.mono:
+        return 0.03;
+      // {{LUT_FOG_STRENGTH}}
     }
   }
 }
@@ -405,14 +444,23 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
             child: Texture(textureId: widget.textureId),
           ),
 
-          // 2. Vignette (楕円形・プラスチックレンズ)
+          // 2. Base fog (D-min)
+          CustomPaint(
+            painter: _BaseFogPainter(
+              color: widget.lutType.previewFogColor,
+              strength:
+                  widget.lutType.previewFogStrength * widget.lutIntensity,
+            ),
+          ),
+
+          // 3. Vignette (楕円形・プラスチックレンズ)
           CustomPaint(
             painter: _VignettePainter(
               strength: widget.lutType.vignetteStrength * widget.lutIntensity,
             ),
           ),
 
-          // 3. Animated film grain (12fps, ISO800 粒子)
+          // 4. Animated film grain (12fps, ISO800 粒子)
           AnimatedBuilder(
             animation: _grainController,
             builder: (_, __) => CustomPaint(
@@ -424,7 +472,7 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
             ),
           ),
 
-          // 4. Light leak
+          // 5. Light leak
           if (widget.lightLeak != LightLeakStrength.none)
             IgnorePointer(
               child: CustomPaint(
@@ -432,18 +480,41 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
               ),
             ),
 
-          // 5. Grid overlay
+          // 6. Grid overlay
           if (widget.showGrid)
             const IgnorePointer(
               child: CustomPaint(painter: _GridPainter()),
             ),
 
-          // 6. Focus indicator (injected from parent)
+          // 7. Focus indicator (injected from parent)
           if (widget.focusIndicator != null) widget.focusIndicator!,
         ],
       ),
     );
   }
+}
+
+class _BaseFogPainter extends CustomPainter {
+  final Color color;
+  final double strength;
+
+  const _BaseFogPainter({
+    required this.color,
+    required this.strength,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (strength <= 0.0) return;
+    final paint = Paint()
+      ..color = color.withValues(alpha: strength.clamp(0.0, 0.18))
+      ..blendMode = BlendMode.screen;
+    canvas.drawRect(Offset.zero & size, paint);
+  }
+
+  @override
+  bool shouldRepaint(_BaseFogPainter old) =>
+      old.color != color || old.strength != strength;
 }
 
 // ── Vignette Painter ─────────────────────────────────────────
@@ -692,6 +763,11 @@ class FilmShaderParams {
   final double blueCrush;
   final double halationWarmth;
   final double grainSize;
+  final double distortion;
+  final double shadowDesat;
+  final double colorSplit;
+  final double crossover;
+  final double bloomStrength;
 
   const FilmShaderParams({
     required this.warmth,
@@ -708,6 +784,11 @@ class FilmShaderParams {
     required this.blueCrush,
     required this.halationWarmth,
     required this.grainSize,
+    required this.distortion,
+    required this.shadowDesat,
+    required this.colorSplit,
+    required this.crossover,
+    required this.bloomStrength,
   });
 
   /// intensity (0–1) で identity とブレンド
@@ -726,6 +807,11 @@ class FilmShaderParams {
         blueCrush: blueCrush * t,
         halationWarmth: halationWarmth * t,
         grainSize: grainSize,
+        distortion: distortion * t,
+        shadowDesat: shadowDesat * t,
+        colorSplit: colorSplit * t,
+        crossover: crossover * t,
+        bloomStrength: bloomStrength * t,
       );
 
   @override
@@ -745,7 +831,12 @@ class FilmShaderParams {
         other.contrast == contrast &&
         other.blueCrush == blueCrush &&
         other.halationWarmth == halationWarmth &&
-        other.grainSize == grainSize;
+        other.grainSize == grainSize &&
+        other.distortion == distortion &&
+        other.shadowDesat == shadowDesat &&
+        other.colorSplit == colorSplit &&
+        other.crossover == crossover &&
+        other.bloomStrength == bloomStrength;
   }
 
   @override
@@ -764,28 +855,16 @@ class FilmShaderParams {
         blueCrush,
         halationWarmth,
         grainSize,
+        distortion,
+        shadowDesat,
+        colorSplit,
+        crossover,
+        bloomStrength,
       );
 }
 
-// ── Fragment Program Cache ────────────────────────────────────
-// LUT ごとに専用シェーダーを持つため、Map でキャッシュする。
-
-final _programCache = <String, ui.FragmentProgram>{};
-final _programFutures = <String, Future<ui.FragmentProgram>>{};
-
-Future<ui.FragmentProgram> _loadShaderProgram(String asset) {
-  if (_programCache.containsKey(asset)) {
-    return Future.value(_programCache[asset]!);
-  }
-  _programFutures[asset] ??= ui.FragmentProgram.fromAsset(asset).then((p) {
-    _programCache[asset] = p;
-    return p;
-  }).catchError((Object error) {
-    _programFutures.remove(asset);
-    throw error;
-  });
-  return _programFutures[asset]!;
-}
+Future<ui.FragmentProgram> _loadShaderProgram(String asset) =>
+    loadFragmentProgram(asset);
 
 // ── Film Shader Painter ───────────────────────────────────────
 
@@ -810,7 +889,7 @@ class FilmShaderPainter extends CustomPainter {
     shader.setFloat(1, size.height);
     // float 2: u_time
     shader.setFloat(2, time);
-    // float 3–16: LUT params (順序はシェーダーのuniform宣言に対応)
+    // float 3–23: LUT params (順序はシェーダーのuniform宣言に対応)
     shader.setFloat(3, params.warmth);
     shader.setFloat(4, params.saturation);
     shader.setFloat(5, params.shadowLift);
@@ -828,6 +907,12 @@ class FilmShaderPainter extends CustomPainter {
     // float 17,18: source image dimensions (coverUV計算用)
     shader.setFloat(17, image.width.toDouble());
     shader.setFloat(18, image.height.toDouble());
+    // float 19-22: extended params
+    shader.setFloat(19, params.distortion);
+    shader.setFloat(20, params.shadowDesat);
+    shader.setFloat(21, params.colorSplit);
+    shader.setFloat(22, params.crossover);
+    shader.setFloat(23, params.bloomStrength);
     // image sampler 0
     shader.setImageSampler(0, image);
     canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
@@ -849,6 +934,7 @@ class FilmShaderImage extends StatefulWidget {
   final double lutIntensity;
   final BoxFit fit;
   final bool animateGrain;
+  final String? shaderAssetOverride;
 
   const FilmShaderImage({
     super.key,
@@ -857,6 +943,7 @@ class FilmShaderImage extends StatefulWidget {
     this.lutIntensity = 1.0,
     this.fit = BoxFit.cover,
     this.animateGrain = false,
+    this.shaderAssetOverride,
   });
 
   @override
@@ -869,6 +956,7 @@ class _FilmShaderImageState extends State<FilmShaderImage>
   ui.FragmentProgram? _program;
   late AnimationController _grainController;
   bool _loading = true;
+  double _staticTime = 0.5;
 
   bool get _useShaderPipeline => !RuntimeCompatibility.disableFragmentShaders;
 
@@ -879,6 +967,7 @@ class _FilmShaderImageState extends State<FilmShaderImage>
       vsync: this,
       duration: const Duration(milliseconds: 83),
     );
+    _staticTime = _seededTime(widget.imagePath);
     if (widget.animateGrain) _grainController.repeat();
     if (_useShaderPipeline) {
       _loadResources();
@@ -901,8 +990,10 @@ class _FilmShaderImageState extends State<FilmShaderImage>
       }
       return;
     }
-    if (old.lutType != widget.lutType) {
-      // LUT が変わった → 別シェーダーファイルをロード
+    final oldAsset = old.shaderAssetOverride ?? old.lutType.shaderAsset;
+    final newAsset = widget.shaderAssetOverride ?? widget.lutType.shaderAsset;
+    if (oldAsset != newAsset) {
+      // シェーダーアセットが変わった → 再ロード
       _program = null;
       setState(() => _loading = true);
       _loadResources();
@@ -911,6 +1002,7 @@ class _FilmShaderImageState extends State<FilmShaderImage>
     if (old.imagePath != widget.imagePath) {
       _image?.dispose();
       _image = null;
+      _staticTime = _seededTime(widget.imagePath);
       setState(() => _loading = true);
       _loadImage();
     }
@@ -923,7 +1015,9 @@ class _FilmShaderImageState extends State<FilmShaderImage>
 
   Future<void> _loadResources() async {
     try {
-      final program = await _loadShaderProgram(widget.lutType.shaderAsset);
+      final shaderAsset =
+          widget.shaderAssetOverride ?? widget.lutType.shaderAsset;
+      final program = await _loadShaderProgram(shaderAsset);
       if (!mounted) return;
       setState(() => _program = program);
       await _loadImage();
@@ -961,6 +1055,15 @@ class _FilmShaderImageState extends State<FilmShaderImage>
     _grainController.dispose();
     _image?.dispose();
     super.dispose();
+  }
+
+  double _seededTime(String input) {
+    var hash = 2166136261;
+    for (final codeUnit in input.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 16777619) & 0x7fffffff;
+    }
+    return (hash % 1000) / 10.0;
   }
 
   @override
@@ -1015,8 +1118,8 @@ class _FilmShaderImageState extends State<FilmShaderImage>
           image: image,
           program: program,
           params: blended,
-          // animateGrain=false のとき time 固定 → グレイン静止
-          time: widget.animateGrain ? _grainController.value * 100.0 : 0.5,
+          // animateGrain=false のとき安定シードで固定 → 写真ごとに違う粒子
+          time: widget.animateGrain ? _grainController.value * 100.0 : _staticTime,
         ),
         size: Size.infinite,
       ),
