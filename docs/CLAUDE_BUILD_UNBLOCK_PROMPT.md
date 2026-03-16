@@ -12,10 +12,11 @@ GPT 側は UI/UX と album 導線を進めています。あなたは shader 品
 - しかし最新コードの再ビルドは止まる
 - 詰まっているのは `camera_screen.dart` 側ではなく shader compile
 - ぶら下がっているのは以下:
-  - `film_iso800.frag`
-  - `film_fuji400.frag`
-  - `film_mono_hp5.frag`
-  - `film_warm.frag`
+  - `film_pipeline.frag`
+  - `legacy/film_iso800.frag`
+  - `legacy/film_fuji400.frag`
+  - `legacy/film_mono_hp5.frag`
+  - `legacy/film_warm.frag`
 
 再現コマンド:
 ```bash
@@ -29,7 +30,7 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 PATH="/usr/local/lib/ruby/gems/4.0.0/bin
 - それぞれ CPU 0.0 のまま長時間終了しない
 
 あなたのタスク:
-1. `shaders/*.frag` を見直して、`impellerc` が hang しない状態へ直す
+1. `shaders/film_pipeline.frag` を見直して、`impellerc` が hang しない状態へ直す
 2. `film_preview.dart` の shader 読み込みや uniform 接続が、現在の shader と矛盾していないか確認する
 3. できるだけ look は維持する
 4. ただし最優先は「iOS simulator build が通ること」

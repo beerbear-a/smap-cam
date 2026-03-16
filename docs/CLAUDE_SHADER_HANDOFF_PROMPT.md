@@ -67,7 +67,8 @@
 まずこれを正しく認識してください。
 
 - shader ファイルはすでにある
-  - `shaders/film_iso800.frag`
+  - `shaders/film_pipeline.frag`（現行）
+  - `shaders/legacy/film_iso800.frag`（参照用）
 - しかし現状の見え方の中心は、まだ `ColorFilter.matrix + CustomPainter` ベース
   - `lib/features/camera/widgets/film_preview.dart`
 - つまり **shader が存在しているのに、まだ主役になっていない**
@@ -75,7 +76,8 @@
 
 ## まず見てほしいファイル
 
-- `shaders/film_iso800.frag`
+- `shaders/film_pipeline.frag`
+- `shaders/legacy/film_iso800.frag`
 - `lib/features/camera/widgets/film_preview.dart`
 - `lib/features/camera/camera_screen.dart`
 - `lib/features/camera/camera_notifier.dart`
@@ -97,7 +99,7 @@
 
 以下を必要に応じて実装してください。
 
-- 既存 `film_iso800.frag` の改修
+- 既存 `film_pipeline.frag` の改修
 - 必要なら shader の分割
 - `FragmentProgram` を中心にした適切な接続
 - Flutter 側の適用パイプラインの整理
