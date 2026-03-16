@@ -554,6 +554,19 @@ class CameraNotifier extends StateNotifier<CameraState> {
         savedPath = result;
       }
 
+      String? autoMemo;
+      try {
+        final labels = await CameraService.classifyImage(
+          savedPath,
+          maxResults: 3,
+        );
+        if (labels.isNotEmpty) {
+          autoMemo = '写っているもの: ${labels.join('、')}';
+        }
+      } catch (_) {
+        // Vision 失敗時はメモなしで続行。
+      }
+
       if (session.isFilmMode) {
         final bakedPath = savePath.replaceAll('.jpg', '_film.png');
         try {
@@ -578,6 +591,7 @@ class CameraNotifier extends StateNotifier<CameraState> {
         sessionId: session.sessionId,
         imagePath: savedPath,
         timestamp: DateTime.now(),
+        memo: autoMemo,
       );
       await DatabaseHelper.insertPhoto(photo);
       _ref.read(photoPathsProvider.notifier).add(savedPath);

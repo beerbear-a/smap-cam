@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import AVFoundation
+import Vision
 
 public class CameraPlugin: NSObject, FlutterPlugin {
 
@@ -84,6 +85,8 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             setFocusPoint(call: call, result: result)
         case "setFocalLength":
             setFocalLength(call: call, result: result)
+        case "classifyImage":
+            classifyImage(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -335,6 +338,41 @@ public class CameraPlugin: NSObject, FlutterPlugin {
                     ))
                 }
             }
+        }
+    }
+
+    // MARK: - Vision (Image Classification)
+
+    private func classifyImage(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let imagePath = args["imagePath"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "imagePath が必要です", details: nil))
+            return
+        }
+
+        let maxResults = (args["maxResults"] as? Int) ?? 3
+
+        guard let image = UIImage(contentsOfFile: imagePath)?.cgImage else {
+            result(FlutterError(code: "INVALID_IMAGE", message: "画像の読み込みに失敗しました", details: nil))
+            return
+        }
+
+        let request = VNClassifyImageRequest { request, error in
+            if let error = error {
+                result(FlutterError(code: "VISION_ERROR", message: error.localizedDescription, details: nil))
+                return
+            }
+            let observations = (request.results as? [VNClassificationObservation]) ?? []
+            let labels = observations.prefix(maxResults).map { $0.identifier }
+            result(labels)
+        }
+        request.usesCPUOnly = false
+
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            result(FlutterError(code: "VISION_ERROR", message: error.localizedDescription, details: nil))
         }
     }
 

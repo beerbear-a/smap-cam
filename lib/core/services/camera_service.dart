@@ -34,6 +34,25 @@ class CameraService {
     });
   }
 
+  static Future<List<String>> classifyImage(
+    String imagePath, {
+    int maxResults = 3,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<List>(
+        'classifyImage',
+        {
+          'imagePath': imagePath,
+          'maxResults': maxResults,
+        },
+      );
+      if (result == null) return [];
+      return result.map((e) => e.toString()).toList();
+    } on MissingPluginException {
+      return [];
+    }
+  }
+
   /// タップフォーカス / タップ露出
   /// [x], [y] は 0.0〜1.0 の正規化座標（左上が 0,0）
   static Future<void> setFocusPoint(double x, double y) async {
