@@ -483,7 +483,7 @@ class _FilmPreviewWidgetState extends State<FilmPreviewWidget>
           // 6. Grid overlay
           if (widget.showGrid)
             const IgnorePointer(
-              child: CustomPaint(painter: _GridPainter()),
+              child: CustomPaint(painter: GridPainter()),
             ),
 
           // 7. Focus indicator (injected from parent)
@@ -720,8 +720,8 @@ class _LightLeakPainter extends CustomPainter {
 
 // ── Grid Painter ─────────────────────────────────────────────
 
-class _GridPainter extends CustomPainter {
-  const _GridPainter();
+class GridPainter extends CustomPainter {
+  const GridPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -739,7 +739,7 @@ class _GridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_GridPainter _) => false;
+  bool shouldRepaint(GridPainter _) => false;
 }
 
 // ═══════════════════════════════════════════════════════════════

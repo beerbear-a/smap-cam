@@ -140,7 +140,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _showSettingsSheet(BuildContext context, CameraState cs) {
-    final canEditInstantLook = cs.activeSession?.isInstantMode == true;
+    final session = cs.activeSession;
+    final canEditFilmLook = session == null
+        ? true
+        : session.isInstantMode
+            ? true
+            : !session.isFilmLookLocked;
     var showGrid = cs.showGrid;
     var flashEnabled = cs.flashEnabled;
     var lightLeak = cs.lightLeak;
@@ -206,15 +211,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                     ),
                   ),
                   // フィルム
-                  if (canEditInstantLook)
-                    _SheetRow(
-                      icon: Icons.photo_filter,
-                      label: '現像後の色味',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        setState(() => _showLutPanel = !_showLutPanel);
-                      },
-                    ),
+                  _SheetRow(
+                    icon: Icons.photo_filter,
+                    label: canEditFilmLook ? 'フィルム選択' : 'フィルム選択（固定）',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() => _showLutPanel = !_showLutPanel);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -584,9 +588,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     final debugSettings = ref.watch(debugSettingsProvider);
     final screenHeight = MediaQuery.sizeOf(context).height;
     final isCompactHeight = screenHeight < 760;
-    final canEditInstantLook = cs.activeSession?.isInstantMode == true;
-    final showLutPanel =
-        _showLutPanel && canEditInstantLook && cs.isCameraReady;
+    final session = cs.activeSession;
+    final canEditFilmLook = session == null
+        ? true
+        : session.isInstantMode
+            ? true
+            : !session.isFilmLookLocked;
+    final showLutPanel = _showLutPanel && cs.isCameraReady;
 
     // エラーメッセージを 2.5 秒後に自動消去
     ref.listen<String?>(
@@ -679,7 +687,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           timerLabel: cs.timerMode.label,
                           timerActive: cs.timerMode != TimerMode.off,
                           lutActive: showLutPanel,
-                          showLutButton: canEditInstantLook,
+                          showLutButton: cs.isCameraReady,
                           flashActive: cs.flashEnabled,
                           onToggle: () {
                             HapticFeedback.selectionClick();
@@ -698,7 +706,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                             ref.read(cameraProvider.notifier).cycleTimerMode();
                           },
                           onLutTap: () {
-                            if (!canEditInstantLook) return;
+                            if (!cs.isCameraReady) return;
                             HapticFeedback.selectionClick();
                             setState(() {
                               _showLutPanel = !_showLutPanel;
@@ -722,6 +730,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           child: _InstantLutPanel(
                             selectedLut: cs.selectedLut,
                             lutIntensity: cs.lutIntensity,
+                            canEdit: canEditFilmLook,
                             onClose: () =>
                                 setState(() => _showLutPanel = false),
                             onSelected: (lut) =>
@@ -841,13 +850,22 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
         child: previewPath == null
             ? const SizedBox.expand(child: MockPhotoView())
             : SizedBox.expand(
-                child: FilmShaderImage(
-                  imagePath: previewPath,
-                  lutType: effectiveLut,
-                  lutIntensity: effectiveLutIntensity,
-                  shaderAssetOverride: cs.filmShaderAssetOverride,
-                  fit: BoxFit.cover,
-                  animateGrain: true,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    FilmShaderImage(
+                      imagePath: previewPath,
+                      lutType: effectiveLut,
+                      lutIntensity: effectiveLutIntensity,
+                      shaderAssetOverride: cs.filmShaderAssetOverride,
+                      fit: BoxFit.cover,
+                      animateGrain: true,
+                    ),
+                    if (cs.showGrid)
+                      const IgnorePointer(
+                        child: CustomPaint(painter: GridPainter()),
+                      ),
+                  ],
                 ),
               ),
       );
@@ -2297,6 +2315,7 @@ class _OverlayActionButton extends StatelessWidget {
 class _InstantLutPanel extends StatelessWidget {
   final LutType selectedLut;
   final double lutIntensity;
+  final bool canEdit;
   final VoidCallback onClose;
   final ValueChanged<LutType> onSelected;
   final ValueChanged<double> onIntensityChanged;
@@ -2304,6 +2323,7 @@ class _InstantLutPanel extends StatelessWidget {
   const _InstantLutPanel({
     required this.selectedLut,
     required this.lutIntensity,
+    required this.canEdit,
     required this.onClose,
     required this.onSelected,
     required this.onIntensityChanged,
@@ -2332,7 +2352,7 @@ class _InstantLutPanel extends StatelessWidget {
               Row(
                 children: [
                   const Text(
-                    '現像後の色味',
+                    'フィルムセレクト',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 11,
@@ -2359,7 +2379,9 @@ class _InstantLutPanel extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'ファインダーには反映せず、見返すときにだけ色味を切り替えます。',
+                canEdit
+                    ? 'ファインダーと仕上がりの雰囲気に反映されます。'
+                    : '撮影開始後は変更できません。',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.54),
                   fontSize: 11,
@@ -2370,6 +2392,7 @@ class _InstantLutPanel extends StatelessWidget {
               LutSelectorWidget(
                 selected: selectedLut,
                 onSelected: onSelected,
+                enabled: canEdit,
               ),
               _LutIntensitySlider(
                 value: lutIntensity,

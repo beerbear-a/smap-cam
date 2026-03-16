@@ -5,27 +5,31 @@ import 'film_preview.dart';
 class LutSelectorWidget extends StatelessWidget {
   final LutType selected;
   final void Function(LutType) onSelected;
+  final bool enabled;
 
   const LutSelectorWidget({
     super.key,
     required this.selected,
     required this.onSelected,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 64,
+      height: 80,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 24),
+        physics: const BouncingScrollPhysics(),
         children: LutType.values.map((lut) {
           final isSelected = lut == selected;
           return _LutChip(
             lut: lut,
             isSelected: isSelected,
+            enabled: enabled,
             onTap: () {
-              if (!isSelected) {
+              if (enabled && !isSelected) {
                 HapticFeedback.selectionClick();
                 onSelected(lut);
               }
@@ -40,30 +44,34 @@ class LutSelectorWidget extends StatelessWidget {
 class _LutChip extends StatelessWidget {
   final LutType lut;
   final bool isSelected;
+  final bool enabled;
   final VoidCallback onTap;
 
   const _LutChip({
     required this.lut,
     required this.isSelected,
+    required this.enabled,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,
-        margin: const EdgeInsets.only(right: 10, top: 8, bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        margin: const EdgeInsets.only(right: 12, top: 6, bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
         decoration: BoxDecoration(
           color: isSelected
-              ? Colors.white.withValues(alpha: 0.12)
-              : Colors.black.withValues(alpha: 0.35),
+              ? Colors.white.withValues(alpha: enabled ? 0.12 : 0.08)
+              : Colors.black.withValues(alpha: enabled ? 0.35 : 0.25),
           borderRadius: BorderRadius.circular(4),
           border: Border.all(
-            color: isSelected ? Colors.white54 : Colors.white12,
+            color: isSelected
+                ? Colors.white54
+                : Colors.white.withValues(alpha: enabled ? 0.12 : 0.06),
             width: isSelected ? 1.0 : 0.5,
           ),
         ),
@@ -76,8 +84,10 @@ class _LutChip extends StatelessWidget {
                 AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 220),
                   style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.white38,
-                    fontSize: 11,
+                    color: enabled
+                        ? (isSelected ? Colors.white : Colors.white38)
+                        : Colors.white24,
+                    fontSize: 12,
                     fontWeight:
                         isSelected ? FontWeight.w600 : FontWeight.w300,
                     letterSpacing: 2.5,
@@ -92,7 +102,8 @@ class _LutChip extends StatelessWidget {
                       vertical: 1,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.15),
+                      color:
+                          Colors.white.withValues(alpha: enabled ? 0.15 : 0.08),
                       borderRadius: BorderRadius.circular(2),
                     ),
                     child: const Text(
@@ -112,8 +123,10 @@ class _LutChip extends StatelessWidget {
             AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 220),
               style: TextStyle(
-                color: isSelected ? Colors.white54 : Colors.white24,
-                fontSize: 9,
+                color: enabled
+                    ? (isSelected ? Colors.white54 : Colors.white24)
+                    : Colors.white24,
+                fontSize: 10,
                 letterSpacing: 1,
               ),
               child: Text(lut.subtitle),
