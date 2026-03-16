@@ -10,6 +10,7 @@ enum LutType {
   warm, // ゴールデンアワー — 無料2種目
   fuji,
   mono;
+  // {{LUT_ENUM}} ← new_lut.dart が自動挿入するマーカー (削除しない)
 
   String get label {
     switch (this) {
@@ -21,6 +22,7 @@ enum LutType {
         return 'FUJI';
       case LutType.mono:
         return 'MONO';
+      // {{LUT_LABEL}}
     }
   }
 
@@ -34,6 +36,7 @@ enum LutType {
         return 'Superia 400';
       case LutType.mono:
         return 'HP5 Plus 400 B&W';
+      // {{LUT_SUBTITLE}}
     }
   }
 
@@ -46,6 +49,7 @@ enum LutType {
       case LutType.fuji:
       case LutType.mono:
         return true;
+      // {{LUT_ISPRO}}
     }
   }
 
@@ -95,28 +99,27 @@ enum LutType {
           0,
         ];
       // ── Fuji Superia 400/800 ─────────────────────────────────────────────
-      // v2: VSCO Film 400H + Dazz Fuji に合わせてライブプレビューも更新
-      //   bias (5列目) をシアン-緑色の D-min に合わせて調整
-      //   R bias: -4 → -6  (赤を沈める = シアン感)
-      //   G bias:  5 → 12  (緑フロアを上げる = Fuji 緑床)
-      //   B bias:  7 → 18  (青フロアを上げる = シアン床 / faded 感)
+      // v3: bias を抑制してライブプレビューの白飛びを修正
+      //   旧 G bias +12 / B bias +18 は明るい空のピクセルを押し上げて
+      //   画面中央に白い楕円が出る原因になっていた。
+      //   シアン-緑の floor 感は保ちつつ gain を抑えて blowout を防ぐ。
       case LutType.fuji:
         return [
-          0.92,  // R←R: 赤を少し引く（シアン）
-          -0.03,
-          0.01,
-          0,
-          -6,    // R bias: -4 → -6
+          0.90,  // R←R: 赤を引いてシアン感
+          -0.02,
           0.00,
-          1.08,  // G←G: 1.06 → 1.08（Fuji 緑ブースト）
-          0.04,
           0,
-          12,    // G bias: 5 → 12（緑床を上げる）
-          0.05,
-          0.04,
-          1.10,  // B←B: 1.08 → 1.10（シアン成分強化）
+          -4,    // R bias: 暗部の赤を少し沈める
+          0.00,
+          1.04,  // G←G: 控えめな緑ブースト
+          0.02,
           0,
-          18,    // B bias: 7 → 18（青床 = faded 感の核心）
+          5,     // G bias: 12→5（blowout 防止）
+          0.02,
+          0.02,
+          1.00,  // B←B: ゲインを 1.10→1.00 に戻す
+          0,
+          8,     // B bias: 18→8（blowout 防止）
           0,
           0,
           0,
@@ -148,6 +151,7 @@ enum LutType {
           1,
           0,
         ];
+      // {{LUT_COLORMATRIX}}
     }
   }
 
@@ -155,60 +159,68 @@ enum LutType {
   FilmShaderParams get shaderParams {
     switch (this) {
       case LutType.natural:
+        // Kodak Gold / 写ルんです: 自然な暖色・適度なコントラスト
+        // 参照: 屋外動物写真（うさぎ・緑・陽光）— milkyHighlights を抑えて
+        // ハイライトを自然に、saturation を少し上げてビビッドな自然色に
         return const FilmShaderParams(
           warmth: 0.85,
-          saturation: 0.92,
-          shadowLift: 0.55,
-          highlightRolloff: 0.75,
-          grainAmount: 0.85,
-          vignetteStrength: 0.75,
-          halationStrength: 0.65,
-          softness: 0.55,
-          chromaticAberration: 0.60,
-          milkyHighlights: 0.80,
-          contrast: -0.05,
+          saturation: 0.96,
+          shadowLift: 0.52,
+          highlightRolloff: 0.72,
+          grainAmount: 0.82,
+          vignetteStrength: 0.72,
+          halationStrength: 0.60,
+          softness: 0.50,
+          chromaticAberration: 0.55,
+          milkyHighlights: 0.65,
+          contrast: -0.02,
           blueCrush: 0.18,
           halationWarmth: 0.75,
           grainSize: 2.0,
         );
       case LutType.warm:
+        // Kodak Gold 期限切れ: 暖かい室内・ゴールデンシャドウ
+        // 参照: ラーメン店内写真 — ハイライト（白い器）がクリーンに出るよう
+        // milkyHighlights を抑制
         return const FilmShaderParams(
           warmth: 1.0,
-          saturation: 0.90,
+          saturation: 0.88,
           shadowLift: 0.50,
-          highlightRolloff: 0.80,
+          highlightRolloff: 0.78,
           grainAmount: 0.75,
-          vignetteStrength: 0.80,
-          halationStrength: 0.85,
-          softness: 0.60,
-          chromaticAberration: 0.55,
-          milkyHighlights: 0.90,
-          contrast: -0.10,
+          vignetteStrength: 0.78,
+          halationStrength: 0.80,
+          softness: 0.58,
+          chromaticAberration: 0.52,
+          milkyHighlights: 0.72,
+          contrast: -0.08,
           blueCrush: 0.25,
           halationWarmth: 1.0,
           grainSize: 2.0,
         );
       case LutType.fuji:
-        // v2: VSCO Film 400H + Dazz Fuji のいいとこどり
-        //   shadowLift 0.35→0.78: VSCO faded 黒（D-min v2 強化に合わせ）
-        //   halationStrength 0.30→0.60: Dazz の視認できる青-紫滲み（5x5 カーネル活用）
-        //   grainAmount 0.65→0.90: Dazz の粗っぽい粒感
-        //   saturation 1.10→1.18: Fuji の鮮やかな緑をもう一押し
-        //   contrast 0.10→0.18: shadowLift で失ったコントラストを補填
+        // v3: 白飛びバグ修正 + Fuji 400 実写参照チューニング
+        //   shadowLift 0.78→0.40: 0.78+contrast 0.18の組み合わせが
+        //     applyFilmCurve shoulder でハイライトを clamp(1.0) に押し込み
+        //     空などの明るい領域が大きな白い卵型として出ていた→修正
+        //   contrast 0.18→0.06: highlight blowout のもう一因
+        //   halationStrength 0.60→0.40: 過剰な青-紫滲みを抑制
+        //   milkyHighlights 0.45→0.28: ハイライトのクリーン感を維持
+        //   saturation 1.18→1.10: Fuji らしいビビッドさを保ちつつ自然に
         return const FilmShaderParams(
-          warmth: 0.18,
-          saturation: 1.18,
-          shadowLift: 0.78,
-          highlightRolloff: 0.65,
-          grainAmount: 0.90,
-          vignetteStrength: 0.60,
-          halationStrength: 0.60,
-          softness: 0.35,
-          chromaticAberration: 0.35,
-          milkyHighlights: 0.45,
-          contrast: 0.18,
+          warmth: 0.20,
+          saturation: 1.10,
+          shadowLift: 0.40,
+          highlightRolloff: 0.60,
+          grainAmount: 0.82,
+          vignetteStrength: 0.55,
+          halationStrength: 0.40,
+          softness: 0.30,
+          chromaticAberration: 0.30,
+          milkyHighlights: 0.28,
+          contrast: 0.06,
           blueCrush: 0.02,
-          halationWarmth: 0.18,
+          halationWarmth: 0.12,
           grainSize: 1.6,
         );
       case LutType.mono:
@@ -228,6 +240,7 @@ enum LutType {
           halationWarmth: 0.0,
           grainSize: 1.8,
         );
+      // {{LUT_SHADERPARAMS}}
     }
   }
 
@@ -243,6 +256,7 @@ enum LutType {
         return 'shaders/film_fuji400.frag'; // Fujifilm Superia 400
       case LutType.mono:
         return 'shaders/film_mono_hp5.frag'; // Ilford HP5 Plus 400
+      // {{LUT_SHADERASSET}}
     }
   }
 
@@ -257,6 +271,7 @@ enum LutType {
         return 0.48; // 0.38 → 0.48: Dazz 相当の締まり感
       case LutType.mono:
         return 0.68;
+      // {{LUT_VIGNETTE}}
     }
   }
 }
