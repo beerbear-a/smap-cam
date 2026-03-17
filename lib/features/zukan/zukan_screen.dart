@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database_helper.dart';
+import '../../core/config/debug_settings.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/models/species.dart';
+import '../../core/repositories/animal_repository.dart';
 import '../../core/utils/routes.dart';
 import '../../core/widgets/mock_photo.dart';
 import '../album/photo_viewer_screen.dart';
@@ -50,6 +52,7 @@ class ZukanData {
 // ── Provider ─────────────────────────────────────────────────
 
 final zukanProvider = FutureProvider<ZukanData>((ref) async {
+  final animalRepository = ref.read(animalRepositoryProvider);
   // 写真ベースの出会いリスト（フォトタグ = subject テキスト）
   final sessions = await DatabaseHelper.getAllFilmSessions();
   final developedSessions = sessions.where((s) => s.isDeveloped).toList();
@@ -86,12 +89,10 @@ final zukanProvider = FutureProvider<ZukanData>((ref) async {
     ..sort((a, b) => a.subject.compareTo(b.subject));
 
   // 種マスターを取得（コンプリート率用）
-  final allSpecies = await DatabaseHelper.getAllSpecies();
+  final allSpecies = await animalRepository.getAllSpecies();
 
   // encounters テーブルから出会い済み species_id を取得
-  final encounterSummary = await DatabaseHelper.getEncounterSummary();
-  final metSpeciesIds =
-      encounterSummary.map((r) => r['species_id'] as String).toSet();
+  final metSpeciesIds = await animalRepository.getMetSpeciesIds();
 
   return ZukanData(
     met: metEntries,
@@ -469,9 +470,10 @@ class _RarityStars extends StatelessWidget {
 
 // ── Empty state ─────────────────────────────────────────────
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends ConsumerWidget {
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final debugSettings = ref.watch(debugSettingsProvider);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -503,7 +505,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const Text(
-              '動物園へ行ってシャッターを切ってみよう',
+              '場所へ行ってシャッターを切ってみよう',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white24,
@@ -516,6 +518,15 @@ class _EmptyState extends StatelessWidget {
             OutlinedButton(
               onPressed: () {
                 HapticFeedback.lightImpact();
+                if (!debugSettings.zooFeaturesEnabled) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('場所機能はデバッグ設定でOFFになっています。'),
+                      duration: Duration(milliseconds: 1400),
+                    ),
+                  );
+                  return;
+                }
                 Navigator.of(context).push(
                   DarkFadeRoute(page: const CheckInScreen()),
                 );

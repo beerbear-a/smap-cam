@@ -377,6 +377,43 @@ class DatabaseHelper {
     );
   }
 
+  static Future<void> movePhotosToSession({
+    required String fromSessionId,
+    required String toSessionId,
+  }) async {
+    final db = await database;
+    await db.update(
+      tablePhotos,
+      {'session_id': toSessionId},
+      where: 'session_id = ?',
+      whereArgs: [fromSessionId],
+    );
+
+    Future<int> countFor(String sessionId) async {
+      final rows = await db.rawQuery(
+        'SELECT COUNT(*) as cnt FROM $tablePhotos WHERE session_id = ?',
+        [sessionId],
+      );
+      return (rows.first['cnt'] as int?) ?? 0;
+    }
+
+    final fromCount = await countFor(fromSessionId);
+    final toCount = await countFor(toSessionId);
+
+    await db.update(
+      tableFilmSessions,
+      {'photo_count': fromCount},
+      where: 'session_id = ?',
+      whereArgs: [fromSessionId],
+    );
+    await db.update(
+      tableFilmSessions,
+      {'photo_count': toCount},
+      where: 'session_id = ?',
+      whereArgs: [toSessionId],
+    );
+  }
+
   static Future<void> ensureMockAlbumSeeded() async {
     final db = await database;
     final photoCount = Sqflite.firstIntValue(

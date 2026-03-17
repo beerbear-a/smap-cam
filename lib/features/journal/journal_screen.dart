@@ -806,7 +806,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                                 const SizedBox(height: 10),
                                 _buildTextField(
                                   controller: _aiHashtagsController,
-                                  hint: '#上野動物園 #フィルムログ',
+                                  hint: '#場所名 #フィルムログ',
                                   maxLines: 2,
                                 ),
                                 const SizedBox(height: 12),

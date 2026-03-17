@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import '../../core/config/runtime_compatibility.dart';
+import '../../shader/fragment_program_cache.dart';
 import 'widgets/film_preview.dart';
 
 class FilmStillService {
@@ -12,6 +14,115 @@ class FilmStillService {
     required String outputPath,
     LutType lutType = LutType.natural,
     double intensity = 1.0,
+    String? shaderAssetOverride,
+  }) async {
+    if (RuntimeCompatibility.disableFragmentShaders) {
+      return _bakeWithCanvas(
+        inputPath: inputPath,
+        outputPath: outputPath,
+        lutType: lutType,
+        intensity: intensity,
+      );
+    }
+
+    return _bakeWithShader(
+      inputPath: inputPath,
+      outputPath: outputPath,
+      lutType: lutType,
+      intensity: intensity,
+      shaderAssetOverride: shaderAssetOverride,
+    );
+  }
+
+  static Future<String> _bakeWithShader({
+    required String inputPath,
+    required String outputPath,
+    required LutType lutType,
+    required double intensity,
+    String? shaderAssetOverride,
+  }) async {
+    final bytes = await File(inputPath).readAsBytes();
+    final codec = await ui.instantiateImageCodec(
+      bytes,
+      targetWidth: 1800,
+    );
+    final frame = await codec.getNextFrame();
+    final srcImage = frame.image;
+
+    final width = srcImage.width.toDouble();
+    final height = srcImage.height.toDouble();
+    final size = ui.Size(width, height);
+
+    final shaderAsset = shaderAssetOverride ?? lutType.shaderAsset;
+    final program = await loadFragmentProgram(shaderAsset);
+    final shader = program.fragmentShader();
+
+    final params =
+        lutType.shaderParams.lerp(intensity.clamp(0.0, 1.0));
+    final seed = _stableSeed(inputPath);
+    final time = (seed % 1000) / 10.0;
+
+    shader.setFloat(0, size.width);
+    shader.setFloat(1, size.height);
+    shader.setFloat(2, time);
+    shader.setFloat(3, params.warmth);
+    shader.setFloat(4, params.saturation);
+    shader.setFloat(5, params.shadowLift);
+    shader.setFloat(6, params.highlightRolloff);
+    shader.setFloat(7, params.grainAmount);
+    shader.setFloat(8, params.vignetteStrength);
+    shader.setFloat(9, params.halationStrength);
+    shader.setFloat(10, params.softness);
+    shader.setFloat(11, params.chromaticAberration);
+    shader.setFloat(12, params.milkyHighlights);
+    shader.setFloat(13, params.contrast);
+    shader.setFloat(14, params.blueCrush);
+    shader.setFloat(15, params.halationWarmth);
+    shader.setFloat(16, params.grainSize);
+    shader.setFloat(17, srcImage.width.toDouble());
+    shader.setFloat(18, srcImage.height.toDouble());
+    shader.setFloat(19, params.distortion);
+    shader.setFloat(20, params.shadowDesat);
+    shader.setFloat(21, params.colorSplit);
+    shader.setFloat(22, params.crossover);
+    shader.setFloat(23, params.bloomStrength);
+    shader.setImageSampler(0, srcImage);
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(
+      recorder,
+      ui.Rect.fromLTWH(0, 0, width, height),
+    );
+
+    canvas.drawRect(
+      ui.Offset.zero & size,
+      ui.Paint()..shader = shader,
+    );
+
+    final picture = recorder.endRecording();
+    final processed = await picture.toImage(width.toInt(), height.toInt());
+    final byteData = await processed.toByteData(format: ui.ImageByteFormat.png);
+
+    processed.dispose();
+    picture.dispose();
+    srcImage.dispose();
+
+    final pngBytes = byteData?.buffer.asUint8List();
+    if (pngBytes == null) {
+      throw Exception('フィルム画像の書き出しに失敗しました');
+    }
+
+    final outFile = File(outputPath);
+    await outFile.parent.create(recursive: true);
+    await outFile.writeAsBytes(pngBytes, flush: true);
+    return outFile.path;
+  }
+
+  static Future<String> _bakeWithCanvas({
+    required String inputPath,
+    required String outputPath,
+    required LutType lutType,
+    required double intensity,
   }) async {
     final bytes = await File(inputPath).readAsBytes();
     final codec = await ui.instantiateImageCodec(

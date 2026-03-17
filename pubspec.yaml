@@ -29,7 +29,8 @@ flutter:
   uses-material-design: true
 
   shaders:
-    - shaders/film_iso800.frag
-    - shaders/film_fuji400.frag
-    - shaders/film_mono_hp5.frag
-    - shaders/film_warm.frag
+    - shaders/film_pipeline.frag
+    - shaders/legacy/film_iso800.frag
+    - shaders/legacy/film_warm.frag
+    - shaders/legacy/film_fuji400.frag
+    - shaders/legacy/film_mono_hp5.frag

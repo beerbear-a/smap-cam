@@ -8,9 +8,10 @@
 //   dart run tools/new_lut.dart portra400 PORTRA "Kodak Portra 400" --pro
 //
 // 生成・更新されるファイル:
-//   shaders/film_{id}.frag       (テンプレートから生成)
-//   pubspec.yaml                 (shaders: に追加)
+//   shaders/legacy/film_{id}.frag       (テンプレートから生成)
 //   lib/features/camera/widgets/film_preview.dart  (LutType に追加)
+// NOTE: 統合パイプライン (shaders/film_pipeline.frag) を使用するため、
+//       pubspec.yaml は更新しない。
 
 import 'dart:io';
 
@@ -75,14 +76,14 @@ ${_bold}例:${_reset}
   print('${_bold}╚════════════════════════════════════════════════╝$_reset\n');
 
   // ── 1. .frag ファイル生成 ────────────────────────────
-  final fragFile = File('${projectRoot.path}/shaders/film_$id.frag');
+  final fragFile = File('${projectRoot.path}/shaders/legacy/film_$id.frag');
   if (fragFile.existsSync()) {
-    fail('shaders/film_$id.frag は既に存在します。別のidを使うか手動で削除してください。');
+    fail('shaders/legacy/film_$id.frag は既に存在します。別のidを使うか手動で削除してください。');
   }
 
-  final templateFile = File('${projectRoot.path}/shaders/_template.frag');
+  final templateFile = File('${projectRoot.path}/shaders/legacy/_template.frag');
   if (!templateFile.existsSync()) {
-    fail('shaders/_template.frag が見つかりません。');
+    fail('shaders/legacy/_template.frag が見つかりません。');
   }
 
   final fragContent = templateFile
@@ -92,31 +93,11 @@ ${_bold}例:${_reset}
       .replaceAll('{{FILM_SUBTITLE}}', subtitle);
 
   fragFile.writeAsStringSync(fragContent);
-  ok('shaders/film_$id.frag を生成しました');
+  ok('shaders/legacy/film_$id.frag を生成しました');
 
-  // ── 2. pubspec.yaml ──────────────────────────────────
-  final pubspecFile = File('${projectRoot.path}/pubspec.yaml');
-  final pubspecContent = pubspecFile.readAsStringSync();
+  info('統合パイプライン (shaders/film_pipeline.frag) を使用するため、pubspec.yaml は更新しません。');
 
-  final shaderEntry = '    - shaders/film_$id.frag';
-  if (pubspecContent.contains(shaderEntry)) {
-    warn('pubspec.yaml に既に登録されています。スキップします。');
-  } else {
-    // 最後の shaders エントリの直後に挿入
-    final linePattern = RegExp(r'    - shaders/film_\w+\.frag');
-    final matches = linePattern.allMatches(pubspecContent).toList();
-    if (matches.isEmpty) {
-      fail('pubspec.yaml の shaders: セクションが見つかりません。手動で追加してください。');
-    }
-    final lastMatch = matches.last;
-    final updated = pubspecContent.substring(0, lastMatch.end)
-        + '\n$shaderEntry'
-        + pubspecContent.substring(lastMatch.end);
-    pubspecFile.writeAsStringSync(updated);
-    ok('pubspec.yaml に shaders/film_$id.frag を追加しました');
-  }
-
-  // ── 3. film_preview.dart ─────────────────────────────
+  // ── 2. film_preview.dart ─────────────────────────────
   final previewFile = File(
     '${projectRoot.path}/lib/features/camera/widgets/film_preview.dart',
   );
@@ -211,23 +192,33 @@ ${_bold}例:${_reset}
           blueCrush: 0.10,
           halationWarmth: 0.60,
           grainSize: 1.8,
+          distortion: 0.08,
+          shadowDesat: 0.80,
+          colorSplit: 0.80,
+          crossover: 0.60,
+          bloomStrength: 0.35,
         );''',
   );
   ok('shaderParams switch に case $id を追加しました (要チューニング)');
 
-  // [7] shaderAsset
-  insertBefore(
-    '// {{LUT_SHADERASSET}}',
-    "      case LutType.$id:\n        return 'shaders/film_$id.frag'; // $subtitle",
-  );
-  ok('shaderAsset switch に case $id を追加しました');
-
-  // [8] vignetteStrength
+  // [7] vignetteStrength
   insertBefore(
     '// {{LUT_VIGNETTE}}',
     '      case LutType.$id:\n        return 0.55; // TODO: $subtitle のビネット強度',
   );
   ok('vignetteStrength switch に case $id を追加しました');
+
+  insertBefore(
+    '// {{LUT_FOG_COLOR}}',
+    '      case LutType.$id:\n        return const Color(0xFFF2E7D5); // TODO: $subtitle のベースフォグ色',
+  );
+  ok('previewFogColor switch に case $id を追加しました');
+
+  insertBefore(
+    '// {{LUT_FOG_STRENGTH}}',
+    '      case LutType.$id:\n        return 0.05; // TODO: $subtitle のベースフォグ強度',
+  );
+  ok('previewFogStrength switch に case $id を追加しました');
 
   previewFile.writeAsStringSync(preview);
 
@@ -237,9 +228,9 @@ ${_bold}
 ╔═ 完了！次にすること ══════════════════════════════╗$_reset
 
   ${_bold}[Step 1] GLSL を調整する$_reset
-  ${_cyan}shaders/film_$id.frag${_reset}
+  ${_cyan}shaders/legacy/film_$id.frag${_reset}
   CUSTOMIZE [1]〜[8] セクションを順番に調整。
-  参考: ${isPro ? 'shaders/film_fuji400.frag や film_mono_hp5.frag' : 'shaders/film_iso800.frag'}
+  参考: ${isPro ? 'shaders/legacy/film_fuji400.frag や film_mono_hp5.frag' : 'shaders/legacy/film_iso800.frag'}
 
   ${_bold}[Step 2] ColorFilter.matrix を調整する$_reset
   ${_cyan}lib/features/camera/widgets/film_preview.dart${_reset}

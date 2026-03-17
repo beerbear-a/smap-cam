@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../core/config/debug_settings.dart';
 import '../../core/config/ai_memory_assist.dart';
 import '../../core/config/experience_rules.dart';
 import '../../core/database/database_helper.dart';
@@ -799,11 +801,12 @@ class _MemoryJournalCard extends StatelessWidget {
   }
 }
 
-class _AlbumEmptyState extends StatelessWidget {
+class _AlbumEmptyState extends ConsumerWidget {
   const _AlbumEmptyState();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final debugSettings = ref.watch(debugSettingsProvider);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -845,11 +848,20 @@ class _AlbumEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 22),
             FilledButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  DarkFadeRoute(page: const CheckInScreen()),
-                );
-              },
+              onPressed: debugSettings.zooFeaturesEnabled
+                  ? () {
+                      Navigator.of(context).push(
+                        DarkFadeRoute(page: const CheckInScreen()),
+                      );
+                    }
+                  : () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('場所機能はデバッグ設定でOFFになっています。'),
+                          duration: Duration(milliseconds: 1400),
+                        ),
+                      );
+                    },
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
@@ -919,13 +931,22 @@ class _InstantSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final previewPhotos = photos.take(12).toList();
+    final baseSession =
+        activeSession?.session ?? (photos.isNotEmpty ? photos.first.session : null);
+    final photoCount = photos.length;
+    final statusLabel =
+        enforceAnalogExperienceRules && activeSession != null
+            ? 'BATTERY ${activeSession!.session.instantBatteryRemaining}%'
+            : 'CUTS ${photoCount.toString().padLeft(2, '0')}';
+    final hasPhotos = photos.isNotEmpty;
+    final canReturnToCamera = activeSession != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionHeader(
-          title: 'インスタント',
-          subtitle: 'iPhone の写真やデジカメみたいに、撮った順で気軽に見返す。',
+          title: 'インスタント（下書き）',
+          subtitle: 'まずは気軽に撮って、あとでフィルムロールにまとめる。',
         ),
         const SizedBox(height: 12),
         Container(
@@ -938,63 +959,83 @@ class _InstantSection extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (activeSession != null) ...[
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Text(
-                        'INSTANT READY',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 10,
-                          letterSpacing: 1.8,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                    const Spacer(),
-                    Text(
-                      enforceAnalogExperienceRules
-                          ? 'BATTERY ${activeSession!.session.instantBatteryRemaining}%'
-                          : '${activeSession!.photos.length} cuts',
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      activeSession != null ? 'INSTANT READY' : 'INSTANT ARCHIVE',
                       style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11,
-                        letterSpacing: 1.2,
+                        color: Colors.white70,
+                        fontSize: 10,
+                        letterSpacing: 1.8,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-              ],
-              Text(
-                activeSession?.session.title ?? 'INSTANT LIBRARY',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w300,
-                ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    statusLabel,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      activeSession?.session.title ?? 'INSTANT LIBRARY',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w300,
+                      ),
+                    ),
+                  ),
+                  if (hasPhotos)
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => _InstantAlbumScreen(
+                              photos: photos,
+                            ),
+                          ),
+                        );
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                      ),
+                      child: const Text('一覧で見る'),
+                    ),
+                ],
               ),
               const SizedBox(height: 6),
               Text(
                 photos.isEmpty
-                    ? 'まだインスタントの写真はありません。撮るとここへ普通のアルバムのように並びます。'
-                    : '${photos.length} 枚を新しい順に並べています。',
+                    ? 'まだインスタントの写真はありません。撮るとここへ並びます。'
+                    : '${photos.length} 枚を新しい順に並べています。フィルムにまとめて保存できます。',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.52),
                   fontSize: 12,
                   height: 1.5,
                 ),
               ),
-              if (photos.isNotEmpty) ...[
+              if (hasPhotos) ...[
+                const SizedBox(height: 10),
+                const Divider(height: 20, color: Colors.white12),
                 const SizedBox(height: 14),
                 GridView.builder(
                   shrinkWrap: true,
@@ -1012,53 +1053,155 @@ class _InstantSection extends ConsumerWidget {
                 ),
               ],
               const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: activeSession == null
-                          ? null
-                          : () {
-                              ref.read(mainTabIndexProvider.notifier).state = 0;
-                            },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                      ),
-                      child: const Text(
-                        'インスタントで撮る',
-                        style: TextStyle(letterSpacing: 1.2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: photos.isEmpty
-                          ? null
-                          : () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => _InstantAlbumScreen(
-                                    photos: photos,
+              if (hasPhotos)
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: baseSession == null
+                            ? null
+                            : () async {
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (dialogContext) => AlertDialog(
+                                    backgroundColor: const Color(0xFF141414),
+                                    title: const Text(
+                                      'フィルムにまとめる',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                    content: const Text(
+                                      'インスタントの写真を27枚のフィルムロールとしてまとめます。インデックスシートも生成されます。',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        height: 1.6,
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(dialogContext, false),
+                                        child: const Text('戻る'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(dialogContext, true),
+                                        child: const Text('まとめる'),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              );
-                            },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                      ),
-                      child: const Text(
-                        '一覧で見る',
-                        style: TextStyle(letterSpacing: 1.2),
+                                );
+                                if (ok != true) return;
+
+                                final newSession = FilmSession(
+                                  sessionId: const Uuid().v4(),
+                                  title: baseSession!.title,
+                                  locationName: baseSession.locationName,
+                                  lat: baseSession.lat,
+                                  lng: baseSession.lng,
+                                  zooId: baseSession.zooId,
+                                  date: DateTime.now(),
+                                  theme: baseSession.theme,
+                                  memo: baseSession.memo,
+                                  status: FilmStatus.developed,
+                                  captureMode: CaptureMode.film,
+                                  photoCount: photos.length,
+                                );
+
+                                await DatabaseHelper.insertFilmSession(
+                                  newSession,
+                                );
+                                await DatabaseHelper.movePhotosToSession(
+                                  fromSessionId: baseSession.sessionId,
+                                  toSessionId: newSession.sessionId,
+                                );
+
+                                final movedPhotos = await DatabaseHelper
+                                    .getPhotosForSession(
+                                  newSession.sessionId,
+                                );
+                                final indexPath =
+                                    await ContactSheetService.generate(
+                                  session: newSession,
+                                  photos: movedPhotos,
+                                  format: ContactSheetFormat.indexSheet,
+                                  persist: true,
+                                );
+                                await DatabaseHelper.updateFilmSession(
+                                  newSession.copyWith(indexSheetPath: indexPath),
+                                );
+
+                                await DatabaseHelper.updateFilmSession(
+                                  baseSession.copyWith(
+                                    status: FilmStatus.shelved,
+                                    photoCount: 0,
+                                  ),
+                                );
+
+                                if (context.mounted) {
+                                  ref
+                                      .read(mainTabIndexProvider.notifier)
+                                      .state = 1;
+                                  ref.invalidate(albumOverviewProvider);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('フィルムロールにまとめました。'),
+                                      duration:
+                                          Duration(milliseconds: 1500),
+                                    ),
+                                  );
+                                }
+                              },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                        ),
+                        child: const Text(
+                          'フィルムにまとめる',
+                          style: TextStyle(letterSpacing: 1.2),
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: canReturnToCamera
+                            ? () {
+                                ref.read(mainTabIndexProvider.notifier).state =
+                                    0;
+                              }
+                            : null,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: const BorderSide(color: Colors.white24),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                        ),
+                        child: const Text(
+                          '撮影へ戻る',
+                          style: TextStyle(letterSpacing: 1.2),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      ref.read(mainTabIndexProvider.notifier).state = 0;
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: Text(
+                      canReturnToCamera ? '撮影へ戻る' : 'インスタントで撮る',
+                      style: const TextStyle(letterSpacing: 1.2),
+                    ),
                   ),
-                ],
-              ),
+                ),
             ],
           ),
         ),

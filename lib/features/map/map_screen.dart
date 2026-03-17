@@ -462,7 +462,7 @@ class _ZooStorySheet extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'この場所で出会った動物',
+                    'この場所で出会った被写体',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 15,
@@ -472,8 +472,8 @@ class _ZooStorySheet extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     highlights.isEmpty
-                        ? 'まだ動物タグはありませんが、ロールは地図に残っています。'
-                        : '地図から見返すと、その場所で会った動物のまとまりが立ち上がります。',
+                        ? 'まだタグはありませんが、ロールは地図に残っています。'
+                        : '地図から見返すと、その場所で会った被写体のまとまりが立ち上がります。',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.54),
                       fontSize: 12,
@@ -588,7 +588,7 @@ class _SpeciesHighlightChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            highlight['name_ja'] as String? ?? '動物',
+            highlight['name_ja'] as String? ?? '被写体',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 13,

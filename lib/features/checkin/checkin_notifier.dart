@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/database/database_helper.dart';
-import '../../core/location/location_service.dart';
+import '../../core/repositories/animal_repository.dart';
 import '../../core/models/zoo.dart';
 
 class CheckInState {
@@ -35,31 +34,16 @@ class CheckInState {
 }
 
 class CheckInNotifier extends StateNotifier<CheckInState> {
-  CheckInNotifier() : super(const CheckInState());
+  CheckInNotifier(this._animalRepository) : super(const CheckInState());
 
-  /// GPS で近くの動物園を検索
+  final AnimalRepository _animalRepository;
+
+  /// GPS で近くの場所を検索
   Future<void> detectNearbyZoos() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final position = await LocationService.getCurrentPosition();
-      if (position == null) {
-        // 位置情報不可 → 全動物園リスト表示
-        final all = await DatabaseHelper.getAllZoos();
-        state = state.copyWith(nearbyZoos: all, isLoading: false);
-        return;
-      }
-      final nearby = await DatabaseHelper.getZoosNear(
-        position.latitude,
-        position.longitude,
-        radiusKm: 10.0,
-      );
-      if (nearby.isEmpty) {
-        // 近くに動物園なし → 全リスト表示
-        final all = await DatabaseHelper.getAllZoos();
-        state = state.copyWith(nearbyZoos: all, isLoading: false);
-      } else {
-        state = state.copyWith(nearbyZoos: nearby, isLoading: false);
-      }
+      final nearby = await _animalRepository.getNearbyZoos(radiusKm: 10.0);
+      state = state.copyWith(nearbyZoos: nearby, isLoading: false);
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
@@ -79,5 +63,5 @@ class CheckInNotifier extends StateNotifier<CheckInState> {
 
 final checkInProvider =
     StateNotifierProvider<CheckInNotifier, CheckInState>((ref) {
-  return CheckInNotifier();
+  return CheckInNotifier(ref.read(animalRepositoryProvider));
 });

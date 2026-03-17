@@ -11,6 +11,7 @@ class RuntimeCompatibility {
   static const bool _forceDisableMapbox = bool.fromEnvironment(
     'ZOOTOCAM_DISABLE_MAPBOX',
   );
+  static const bool _defaultDisableMapbox = true;
   static const bool _forceEnableFragmentShaders = bool.fromEnvironment(
     'ZOOTOCAM_FORCE_ENABLE_FRAGMENT_SHADERS',
   );
@@ -26,6 +27,7 @@ class RuntimeCompatibility {
   static bool get disableMapbox {
     if (_forceEnableMapbox) return false;
     if (_forceDisableMapbox) return true;
+    if (_defaultDisableMapbox) return true;
     return isIOS26OrLater;
   }
 
@@ -43,6 +45,9 @@ class RuntimeCompatibility {
     if (!disableMapbox) return null;
     if (_forceDisableMapbox) {
       return '起動安定化のため、Mapbox を明示的に無効化しています。';
+    }
+    if (_defaultDisableMapbox) {
+      return '運用方針により、Mapbox を一時停止しています。';
     }
     if (isIOS26OrLater) {
       return 'iOS 26 系では起動直後クラッシュ回避のため、Mapbox を一時停止しています。';

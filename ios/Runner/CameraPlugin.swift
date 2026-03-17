@@ -1,6 +1,8 @@
 import Flutter
 import UIKit
 import AVFoundation
+import Vision
+import MediaPlayer
 
 public class CameraPlugin: NSObject, FlutterPlugin {
 
@@ -32,17 +34,19 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             name: "zootocam/camera",
             binaryMessenger: registrar.messenger()
         )
-        let instance = CameraPlugin(registrar: registrar)
+        let instance = CameraPlugin(registrar: registrar, channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
     }
 
     private let registrar: FlutterPluginRegistrar
+    private let channel: FlutterMethodChannel
     private var captureSession: AVCaptureSession?
     private var currentInput: AVCaptureDeviceInput?
     private var photoOutput: AVCapturePhotoOutput?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var currentDevice: AVCaptureDevice?
     private var textureId: Int64 = -1
+    private var utsurunEnabled: Bool = false
 
     // Thread-safe pixel buffer
     private let bufferLock = NSLock()
@@ -51,6 +55,12 @@ public class CameraPlugin: NSObject, FlutterPlugin {
     private var flashMode: AVCaptureDevice.FlashMode = .off
     private var photoCaptureCompletion: ((String?) -> Void)?
     private var currentSavePath: String?
+
+    private var volumeView: MPVolumeView?
+    private var volumeObserver: NSKeyValueObservation?
+    private var lastVolume: Float = 0.5
+    private var lastHardwareTrigger = Date.distantPast
+    private var ignoreNextVolumeEvent = false
 
     // Dedicated serial queue for video frames
     private let videoQueue = DispatchQueue(
@@ -62,8 +72,9 @@ public class CameraPlugin: NSObject, FlutterPlugin {
         qos: .userInitiated
     )
 
-    init(registrar: FlutterPluginRegistrar) {
+    init(registrar: FlutterPluginRegistrar, channel: FlutterMethodChannel) {
         self.registrar = registrar
+        self.channel = channel
         super.init()
     }
 
@@ -84,6 +95,10 @@ public class CameraPlugin: NSObject, FlutterPlugin {
             setFocusPoint(call: call, result: result)
         case "setFocalLength":
             setFocalLength(call: call, result: result)
+        case "setUtsurunEnabled":
+            setUtsurunEnabled(call: call, result: result)
+        case "classifyImage":
+            classifyImage(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -131,7 +146,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
 
                 // Photo output
                 let photoOutput = AVCapturePhotoOutput()
-                photoOutput.isHighResolutionCaptureEnabled = true
+                photoOutput.isHighResolutionCaptureEnabled = !self.utsurunEnabled
                 if session.canAddOutput(photoOutput) {
                     session.addOutput(photoOutput)
                     self.photoOutput = photoOutput
@@ -170,6 +185,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
                 self.textureId = textureId
 
                 session.startRunning()
+                self.startHardwareShutterListening()
 
                 DispatchQueue.main.async {
                     result(["textureId": textureId])
@@ -193,6 +209,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
         videoQueue.async { [weak self] in
             guard let self = self else { return }
             self.captureSession?.stopRunning()
+            self.stopHardwareShutterListening()
             self.captureSession = nil
             self.currentInput = nil
             self.photoOutput = nil
@@ -210,6 +227,69 @@ public class CameraPlugin: NSObject, FlutterPlugin {
                 }
                 result(nil)
             }
+        }
+    }
+
+    // MARK: - Hardware Shutter (Volume Buttons)
+
+    private func startHardwareShutterListening() {
+        guard volumeObserver == nil else { return }
+
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setActive(true)
+        } catch {
+            // If audio session activation fails, we skip hardware shutter.
+        }
+
+        lastVolume = audioSession.outputVolume
+        ignoreNextVolumeEvent = true
+
+        let volumeView = MPVolumeView(frame: .zero)
+        volumeView.isHidden = true
+        volumeView.alpha = 0.01
+        if let hostView = registrar.viewController?.view {
+            hostView.addSubview(volumeView)
+        }
+        self.volumeView = volumeView
+
+        volumeObserver = audioSession.observe(
+            \.outputVolume,
+            options: [.new, .old]
+        ) { [weak self] session, change in
+            guard let self = self else { return }
+            let newVolume = change.newValue ?? session.outputVolume
+            self.handleVolumeChange(newVolume: newVolume)
+        }
+    }
+
+    private func stopHardwareShutterListening() {
+        volumeObserver?.invalidate()
+        volumeObserver = nil
+        volumeView?.removeFromSuperview()
+        volumeView = nil
+    }
+
+    private func handleVolumeChange(newVolume: Float) {
+        if ignoreNextVolumeEvent {
+            ignoreNextVolumeEvent = false
+            lastVolume = newVolume
+            return
+        }
+        guard captureSession?.isRunning == true else { return }
+        let now = Date()
+        if now.timeIntervalSince(lastHardwareTrigger) < 0.35 {
+            lastVolume = newVolume
+            return
+        }
+        if abs(newVolume - lastVolume) < 0.001 {
+            return
+        }
+        lastVolume = newVolume
+        lastHardwareTrigger = now
+
+        DispatchQueue.main.async { [weak self] in
+            self?.channel.invokeMethod("hardwareShutter", arguments: nil)
         }
     }
 
@@ -246,7 +326,7 @@ public class CameraPlugin: NSObject, FlutterPlugin {
         }
 
         settings.flashMode = flashMode
-        settings.isHighResolutionPhotoEnabled = true
+        settings.isHighResolutionPhotoEnabled = !utsurunEnabled
 
         // Set orientation for capture connection
         if let connection = photoOutput.connection(with: .video) {
@@ -338,6 +418,91 @@ public class CameraPlugin: NSObject, FlutterPlugin {
         }
     }
 
+    // MARK: - Utsurun Mode
+
+    private func setUtsurunEnabled(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let enabled = args["enabled"] as? Bool else {
+            result(nil)
+            return
+        }
+        utsurunEnabled = enabled
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            if let output = self.photoOutput {
+                output.isHighResolutionCaptureEnabled = !enabled
+            }
+            if let device = self.currentDevice {
+                do {
+                    try device.lockForConfiguration()
+                    if enabled {
+                        UtsurunManager.applyFixedFocus(to: device, lensPosition: 0.6)
+                        UtsurunManager.applyExposureProfile(to: device, profile: .defaultExposure)
+                        let zoomFactor = UtsurunManager.zoomFactorFor32mm(device: device)
+                        if abs(device.videoZoomFactor - zoomFactor) > 0.01 {
+                            device.ramp(toVideoZoomFactor: zoomFactor, withRate: 18.0)
+                        } else {
+                            device.videoZoomFactor = zoomFactor
+                        }
+                    } else {
+                        if device.isFocusModeSupported(.continuousAutoFocus) {
+                            device.focusMode = .continuousAutoFocus
+                        }
+                        if device.isExposureModeSupported(.continuousAutoExposure) {
+                            device.exposureMode = .continuousAutoExposure
+                        }
+                    }
+                    device.unlockForConfiguration()
+                } catch {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UTSURUN_ERROR",
+                            message: error.localizedDescription,
+                            details: nil
+                        ))
+                    }
+                    return
+                }
+            }
+            DispatchQueue.main.async { result(nil) }
+        }
+    }
+
+    // MARK: - Vision (Image Classification)
+
+    private func classifyImage(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let imagePath = args["imagePath"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "imagePath が必要です", details: nil))
+            return
+        }
+
+        let maxResults = (args["maxResults"] as? Int) ?? 3
+
+        guard let image = UIImage(contentsOfFile: imagePath)?.cgImage else {
+            result(FlutterError(code: "INVALID_IMAGE", message: "画像の読み込みに失敗しました", details: nil))
+            return
+        }
+
+        let request = VNClassifyImageRequest { request, error in
+            if let error = error {
+                result(FlutterError(code: "VISION_ERROR", message: error.localizedDescription, details: nil))
+                return
+            }
+            let observations = (request.results as? [VNClassificationObservation]) ?? []
+            let labels = observations.prefix(maxResults).map { $0.identifier }
+            result(labels)
+        }
+        request.usesCPUOnly = false
+
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            result(FlutterError(code: "VISION_ERROR", message: error.localizedDescription, details: nil))
+        }
+    }
+
     private func applyFocalPreset(_ preset: FocalPreset) throws {
         guard let session = captureSession else {
             throw NSError(
@@ -399,11 +564,16 @@ public class CameraPlugin: NSObject, FlutterPlugin {
         try device.lockForConfiguration()
         defer { device.unlockForConfiguration() }
 
-        if device.isFocusModeSupported(.continuousAutoFocus) {
-            device.focusMode = .continuousAutoFocus
-        }
-        if device.isExposureModeSupported(.continuousAutoExposure) {
-            device.exposureMode = .continuousAutoExposure
+        if utsurunEnabled {
+            UtsurunManager.applyFixedFocus(to: device, lensPosition: 0.6)
+            UtsurunManager.applyExposureProfile(to: device, profile: .defaultExposure)
+        } else {
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
         }
         if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
             device.whiteBalanceMode = .continuousAutoWhiteBalance
@@ -413,10 +583,12 @@ public class CameraPlugin: NSObject, FlutterPlugin {
         }
 
         device.cancelVideoZoomRamp()
-        let zoomFactor = max(
-            device.minAvailableVideoZoomFactor,
-            min(preset.zoomFactor, device.maxAvailableVideoZoomFactor)
-        )
+        let zoomFactor = utsurunEnabled
+            ? UtsurunManager.zoomFactorFor32mm(device: device)
+            : max(
+                device.minAvailableVideoZoomFactor,
+                min(preset.zoomFactor, device.maxAvailableVideoZoomFactor)
+            )
         if abs(device.videoZoomFactor - zoomFactor) > 0.01 {
             device.ramp(toVideoZoomFactor: zoomFactor, withRate: 18.0)
         } else {

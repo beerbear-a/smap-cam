@@ -71,14 +71,15 @@
 
 ### シェーダーエンジン現況（2026-03-15 完成）
 
-4本の専用シェーダーがそれぞれ異なる乳剤を光化学的に再現済み。詳細は「写真エンジン」節を参照。
+現在は統合シェーダー `shaders/film_pipeline.frag` が主役。過去の専用シェーダーは `shaders/legacy/` に退避済み。
 
 | シェーダー | バージョン | フィルム | 状態 |
 |-----------|----------|---------|------|
-| `film_iso800.frag` | v5 | 写ルんです QuickSnap ISO800 | ✅ 完成 |
-| `film_fuji400.frag` | v1 | Fujifilm Superia 400 | ✅ 完成 |
-| `film_mono_hp5.frag` | v1 | Ilford HP5 Plus 400 B&W | ✅ 完成 |
-| `film_warm.frag` | v1 | Kodak Gold / 期限切れフィルム | ✅ 完成 |
+| `film_pipeline.frag` | v1 | 統合フィルムパイプライン | ✅ 使用中 |
+| `legacy/film_iso800.frag` | v5 | 写ルんです QuickSnap ISO800 | 参照用 |
+| `legacy/film_fuji400.frag` | v1 | Fujifilm Superia 400 | 参照用 |
+| `legacy/film_mono_hp5.frag` | v1 | Ilford HP5 Plus 400 B&W | 参照用 |
+| `legacy/film_warm.frag` | v1 | Kodak Gold / 期限切れフィルム | 参照用 |
 
 ### まだ整理途中の領域
 

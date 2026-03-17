@@ -49,7 +49,8 @@ Project root:
 
 見るべきファイル:
 
-- `shaders/film_iso800.frag`
+- `shaders/film_pipeline.frag`
+- `shaders/legacy/film_iso800.frag`
 - `lib/features/camera/widgets/film_preview.dart`
 - `lib/features/camera/camera_screen.dart`
 - `lib/features/camera/camera_notifier.dart`
@@ -67,7 +68,7 @@ Project root:
 
 以下を必要に応じて、実際にコード変更してください。
 
-1. `film_iso800.frag` の改修
+1. `film_pipeline.frag` の改修
 2. 必要なら shader の追加
 3. `FragmentProgram` を中心にした正しい接続
 4. Flutter 側の描画パイプライン整理

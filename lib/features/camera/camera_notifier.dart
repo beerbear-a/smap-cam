@@ -10,6 +10,8 @@ import '../../core/database/database_helper.dart';
 import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/services/camera_service.dart';
+import '../../core/config/debug_settings.dart';
+import '../../core/config/camera_settings.dart';
 import 'film_still_service.dart';
 import 'widgets/film_preview.dart';
 
@@ -130,6 +132,9 @@ class CameraState {
   final String? simulatorPreviewPath;
   final AspectRatioMode aspectRatio;
   final FocalLength focalLength;
+  final String? filmShaderAssetOverride;
+  final bool filmPreviewEnabled;
+  final String? autoMemoNotice;
 
   // NOTE: シャッター音OFFは日本国内では盗撮規制法により禁止。
   // iOS（日本向けモデル）はAVFoundationレベルで強制ON、
@@ -153,6 +158,9 @@ class CameraState {
     this.simulatorPreviewPath,
     this.aspectRatio = AspectRatioMode.r4_3,
     this.focalLength = FocalLength.f35,
+    this.filmShaderAssetOverride,
+    this.filmPreviewEnabled = true,
+    this.autoMemoNotice,
   });
 
   int get remainingShots =>
@@ -188,6 +196,11 @@ class CameraState {
     String? simulatorPreviewPath,
     AspectRatioMode? aspectRatio,
     FocalLength? focalLength,
+    String? filmShaderAssetOverride,
+    bool clearFilmShaderAssetOverride = false,
+    bool? filmPreviewEnabled,
+    String? autoMemoNotice,
+    bool clearAutoMemoNotice = false,
     bool clearCompletedRollSession = false,
   }) {
     return CameraState(
@@ -211,6 +224,12 @@ class CameraState {
       simulatorPreviewPath: simulatorPreviewPath ?? this.simulatorPreviewPath,
       aspectRatio: aspectRatio ?? this.aspectRatio,
       focalLength: focalLength ?? this.focalLength,
+      filmShaderAssetOverride: clearFilmShaderAssetOverride
+          ? null
+          : filmShaderAssetOverride ?? this.filmShaderAssetOverride,
+      filmPreviewEnabled: filmPreviewEnabled ?? this.filmPreviewEnabled,
+      autoMemoNotice:
+          clearAutoMemoNotice ? null : autoMemoNotice ?? this.autoMemoNotice,
     );
   }
 }
@@ -232,7 +251,25 @@ final photoPathsProvider =
 
 class CameraNotifier extends StateNotifier<CameraState> {
   final Ref _ref;
-  CameraNotifier(this._ref) : super(const CameraState());
+  CameraNotifier(this._ref) : super(const CameraState()) {
+    _ref.listen<DebugSettings>(debugSettingsProvider, (prev, next) {
+      if (prev?.filmShaderAssetOverride == next.filmShaderAssetOverride) {
+        return;
+      }
+      state = state.copyWith(
+        filmShaderAssetOverride: next.filmShaderAssetOverride,
+        clearFilmShaderAssetOverride: next.filmShaderAssetOverride == null,
+      );
+    });
+    _ref.listen<CameraSettings>(cameraSettingsProvider, (prev, next) async {
+      if (prev?.utsurunModeEnabled == next.utsurunModeEnabled) {
+        return;
+      }
+      if (!state.isSimulatorMode && state.isCameraReady) {
+        await CameraService.setUtsurunEnabled(next.utsurunModeEnabled);
+      }
+    });
+  }
 
   Timer? _timerTick;
 
@@ -260,6 +297,9 @@ class CameraNotifier extends StateNotifier<CameraState> {
       final result = await CameraService.initializeCamera();
       final textureId = result['textureId'] as int?;
       state = state.copyWith(textureId: textureId, isCameraReady: true);
+      final utsurunEnabled =
+          _ref.read(cameraSettingsProvider).utsurunModeEnabled;
+      await CameraService.setUtsurunEnabled(utsurunEnabled);
       await setFocalLength(state.focalLength);
     } on PlatformException catch (_) {
       // シミュレーター：カメラなしでも続行
@@ -286,6 +326,12 @@ class CameraNotifier extends StateNotifier<CameraState> {
     if (state.error != null) state = state.copyWith(error: null);
   }
 
+  void clearAutoMemoNotice() {
+    if (state.autoMemoNotice != null) {
+      state = state.copyWith(clearAutoMemoNotice: true);
+    }
+  }
+
   Future<void> toggleFlash() async {
     final newValue = !state.flashEnabled;
     if (!state.isSimulatorMode) await CameraService.setFlash(newValue);
@@ -310,6 +356,9 @@ class CameraNotifier extends StateNotifier<CameraState> {
       error: null,
     );
   }
+
+  void toggleFilmPreview() =>
+      state = state.copyWith(filmPreviewEnabled: !state.filmPreviewEnabled);
 
   void toggleGrid() => state = state.copyWith(showGrid: !state.showGrid);
 
@@ -536,6 +585,19 @@ class CameraNotifier extends StateNotifier<CameraState> {
         savedPath = result;
       }
 
+      String? autoMemo;
+      try {
+        final labels = await CameraService.classifyImage(
+          savedPath,
+          maxResults: 3,
+        );
+        if (labels.isNotEmpty) {
+          autoMemo = '写っているもの: ${labels.join('、')}';
+        }
+      } catch (_) {
+        // Vision 失敗時はメモなしで続行。
+      }
+
       if (session.isFilmMode) {
         final bakedPath = savePath.replaceAll('.jpg', '_film.png');
         try {
@@ -544,6 +606,7 @@ class CameraNotifier extends StateNotifier<CameraState> {
             outputPath: bakedPath,
             lutType: state.selectedLut,
             intensity: state.lutIntensity,
+            shaderAssetOverride: state.filmShaderAssetOverride,
           );
           final rawFile = File(savePath);
           if (rawFile.existsSync()) {
@@ -559,7 +622,11 @@ class CameraNotifier extends StateNotifier<CameraState> {
         sessionId: session.sessionId,
         imagePath: savedPath,
         timestamp: DateTime.now(),
+        memo: autoMemo,
       );
+      if (autoMemo != null) {
+        state = state.copyWith(autoMemoNotice: autoMemo);
+      }
       await DatabaseHelper.insertPhoto(photo);
       _ref.read(photoPathsProvider.notifier).add(savedPath);
 

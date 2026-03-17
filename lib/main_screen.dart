@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/config/debug_settings.dart';
 import 'core/config/runtime_compatibility.dart';
 import 'core/models/film_session.dart';
 import 'core/navigation/main_tab_provider.dart';
@@ -95,9 +96,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       1 => const AlbumScreen(),
       2 => RuntimeCompatibility.disableMapbox
           ? _CompatibilityPlaceholder(
-              title: 'MAP DISABLED',
+              title: 'マップは非表示',
               message:
-                  RuntimeCompatibility.mapboxDisableReason ?? 'マップを一時停止しています。',
+                  RuntimeCompatibility.mapboxDisableReason ??
+                  'マップは現在表示しない設定です。',
             )
           : const MapScreen(),
       3 => const ZukanScreen(),
@@ -111,10 +113,15 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final showLabels = ref.watch(navigationLabelsVisibleProvider);
     final currentIndex = ref.watch(mainTabIndexProvider);
     final addonTabs = ref.watch(addonTabsVisibilityProvider);
-    final showMapTab = addonTabs.showMap && !RuntimeCompatibility.disableMapbox;
-    const showZukan = false;
-    final isCurrentTabHidden =
-        (currentIndex == 2 && !showMapTab) || (currentIndex == 3 && !showZukan);
+    final debugSettings = ref.watch(debugSettingsProvider);
+    final visibility = computeFeatureVisibility(
+      debug: debugSettings,
+      showMap: addonTabs.showMap,
+      showZukan: addonTabs.showZukan,
+      mapboxDisabled: RuntimeCompatibility.disableMapbox,
+    );
+    final isCurrentTabHidden = (currentIndex == 2 && !visibility.mapVisible) ||
+        (currentIndex == 3 && !visibility.zukanVisible);
     final visibleIndex = isCurrentTabHidden ? 0 : currentIndex;
     _initializedTabs.add(visibleIndex);
 
@@ -135,8 +142,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         currentIndex: visibleIndex,
         onTap: _onTabTap,
         showLabels: showLabels,
-        showMap: showMapTab,
-        showZukan: showZukan,
+        showMap: visibility.mapVisible,
+        showZukan: visibility.zukanVisible,
       ),
     );
   }

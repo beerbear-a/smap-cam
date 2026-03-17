@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/config/debug_settings.dart';
 import '../../core/config/experience_rules.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/mock/mock_photo_library.dart';
@@ -58,6 +59,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     super.initState();
     _cameraNotifier = ref.read(cameraProvider.notifier);
     WidgetsBinding.instance.addObserver(this);
+    CameraService.setHardwareShutterHandler(() {
+      final cs = ref.read(cameraProvider);
+      if (!cs.canShoot) return;
+      _onShutter();
+    });
 
     _flashController = AnimationController(
       vsync: this,
@@ -90,6 +96,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    CameraService.setHardwareShutterHandler(null);
     _flashController.dispose();
     _focusController.dispose();
     _cameraNotifier.disposeCamera();
@@ -106,6 +113,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _onShutter() {
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+    }
     final cs = ref.read(cameraProvider);
     if (cs.timerMode == TimerMode.off) {
       _flashController.forward().then((_) => _flashController.reverse());
@@ -115,6 +125,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _onTapUp(TapUpDetails details) {
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+      return;
+    }
     final cs = ref.read(cameraProvider);
     if (!cs.isCameraReady) return;
     final size = _previewAreaKey.currentContext?.size;
@@ -139,7 +153,15 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _showSettingsSheet(BuildContext context, CameraState cs) {
-    final canEditInstantLook = cs.activeSession?.isInstantMode == true;
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+    }
+    final session = cs.activeSession;
+    final canEditFilmLook = session == null
+        ? true
+        : session.isInstantMode
+            ? true
+            : !session.isFilmLookLocked;
     var showGrid = cs.showGrid;
     var flashEnabled = cs.flashEnabled;
     var lightLeak = cs.lightLeak;
@@ -204,16 +226,28 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                       },
                     ),
                   ),
-                  // LUTフィルム
-                  if (canEditInstantLook)
-                    _SheetRow(
-                      icon: Icons.photo_filter,
-                      label: '現像後の色味',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        setState(() => _showLutPanel = !_showLutPanel);
+                  // フィルム
+                  _SheetRow(
+                    icon: Icons.photo_filter,
+                    label: canEditFilmLook ? 'フィルム選択' : 'フィルム選択（固定）',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() => _showLutPanel = !_showLutPanel);
+                    },
+                  ),
+                  _SheetRow(
+                    icon: Icons.layers_outlined,
+                    label: 'フィルムビュー',
+                    trailing: Switch(
+                      value: cs.filmPreviewEnabled,
+                      onChanged: (_) {
+                        ref.read(cameraProvider.notifier).toggleFilmPreview();
+                        setSheetState(() {});
                       },
+                      activeThumbColor: Colors.white,
+                      inactiveTrackColor: Colors.white12,
                     ),
+                  ),
                 ],
               ),
             ),
@@ -306,6 +340,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   }
 
   void _showRollStatusDialog(BuildContext context, CameraState cs) {
+    if (_showLutPanel) {
+      setState(() => _showLutPanel = false);
+    }
     showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -347,9 +384,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                 },
                 onOpenCheckIn: () {
                   Navigator.pop(dialogContext);
-                  Navigator.of(context).push(
-                    DarkFadeRoute(page: const CheckInScreen()),
-                  );
+                  _openCheckIn(context);
                 },
                 onStartInstant: () async {
                   Navigator.pop(dialogContext);
@@ -437,9 +472,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
               if (!mounted) return;
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                Navigator.of(context).push(
-                  DarkFadeRoute(page: const CheckInScreen()),
-                );
+                _openCheckIn(context);
               });
             },
             child: const Text('フィルムを作る'),
@@ -516,9 +549,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                     // clearCompletedRollPrompt はここではしない。
                     // CheckInScreen で新フィルムが作成 → loadActiveSession が
                     // 自動クリアする。戻るだけなら overlay を維持する。
-                    Navigator.of(context).push(
-                      DarkFadeRoute(page: const CheckInScreen()),
-                    );
+                    _openCheckIn(context);
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.white,
@@ -567,14 +598,37 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     );
   }
 
+  void _openCheckIn(BuildContext context) {
+    final debugSettings = ref.read(debugSettingsProvider);
+    if (!debugSettings.zooFeaturesEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('場所機能はデバッグ設定でOFFになっています。'),
+          duration: Duration(milliseconds: 1400),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      DarkFadeRoute(page: const CheckInScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = ref.watch(cameraProvider);
+    final debugSettings = ref.watch(debugSettingsProvider);
     final screenHeight = MediaQuery.sizeOf(context).height;
     final isCompactHeight = screenHeight < 760;
-    final canEditInstantLook = cs.activeSession?.isInstantMode == true;
-    final showLutPanel =
-        _showLutPanel && canEditInstantLook && cs.isCameraReady;
+    final session = cs.activeSession;
+    final showSessionIndicator =
+        cs.completedRollSession == null && cs.activeSession != null;
+    final canEditFilmLook = session == null
+        ? true
+        : session.isInstantMode
+            ? true
+            : !session.isFilmLookLocked;
+    final showLutPanel = _showLutPanel && cs.isCameraReady;
 
     // エラーメッセージを 2.5 秒後に自動消去
     ref.listen<String?>(
@@ -588,21 +642,46 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
       },
     );
 
+    // 自動メモの通知
+    ref.listen<String?>(
+      cameraProvider.select((s) => s.autoMemoNotice),
+      (prev, next) {
+        if (next != null && prev != next) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(next),
+              duration: const Duration(milliseconds: 1800),
+            ),
+          );
+          ref.read(cameraProvider.notifier).clearAutoMemoNotice();
+        }
+      },
+    );
+
     // ロール完了時は _RollCompletedOverlay がビューファインダーに表示される。
     // 自動でボトムシートを出すと二重表示になるため auto-trigger を廃止。
     // ユーザーは Overlay の「次のステップへ」ボタンからシートを開く。
-
-    void openCheckIn() {
-      Navigator.of(context).push(
-        DarkFadeRoute(page: const CheckInScreen()),
-      );
-    }
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: Column(
           children: [
+            SizedBox(height: isCompactHeight ? 6 : 10),
+            if (showSessionIndicator)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Center(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _showRollStatusDialog(context, cs),
+                    child: _SessionIndicator(
+                      session: session!,
+                      isCapturing: cs.isCapturing,
+                    ),
+                  ),
+                ),
+              ),
             SizedBox(height: isCompactHeight ? 8 : 12),
 
             // ── プレビュー（ラウンドコーナー）──────────────
@@ -630,29 +709,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         aspectRatio: cs.aspectRatio,
                         orientation: MediaQuery.orientationOf(context),
                       ),
-                      Positioned(
-                        top: 14,
-                        left: 18,
-                        right: 18,
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 46),
-                            const Spacer(),
-                            if (cs.completedRollSession == null &&
-                                cs.activeSession != null)
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => _showRollStatusDialog(context, cs),
-                                child: _SessionIndicator(
-                                  session: cs.activeSession!,
-                                  isCapturing: cs.isCapturing,
-                                ),
-                              ),
-                            const Spacer(),
-                            const SizedBox(width: 46),
-                          ],
-                        ),
-                      ),
                       if (_isControlDockOpen)
                         Positioned.fill(
                           child: GestureDetector(
@@ -673,33 +729,53 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           timerLabel: cs.timerMode.label,
                           timerActive: cs.timerMode != TimerMode.off,
                           lutActive: showLutPanel,
-                          showLutButton: canEditInstantLook,
+                          showLutButton: cs.isCameraReady,
                           flashActive: cs.flashEnabled,
+                          filmViewActive: cs.filmPreviewEnabled,
                           onToggle: () {
                             HapticFeedback.selectionClick();
-                            setState(
-                              () => _isControlDockOpen = !_isControlDockOpen,
-                            );
+                            setState(() {
+                              _isControlDockOpen = !_isControlDockOpen;
+                              _showLutPanel = false;
+                            });
                           },
                           onAspectRatioTap: () {
                             HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
                             ref
                                 .read(cameraProvider.notifier)
                                 .cycleAspectRatio();
                           },
                           onTimerTap: () {
                             HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
                             ref.read(cameraProvider.notifier).cycleTimerMode();
                           },
                           onLutTap: () {
-                            if (!canEditInstantLook) return;
+                            if (!cs.isCameraReady) return;
                             HapticFeedback.selectionClick();
                             setState(() {
                               _showLutPanel = !_showLutPanel;
                             });
                           },
+                          onFilmViewTap: () {
+                            HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
+                            ref
+                                .read(cameraProvider.notifier)
+                                .toggleFilmPreview();
+                          },
                           onFlashTap: () {
                             HapticFeedback.selectionClick();
+                            if (_showLutPanel) {
+                              setState(() => _showLutPanel = false);
+                            }
                             ref.read(cameraProvider.notifier).toggleFlash();
                           },
                           onSettingsTap: () {
@@ -709,6 +785,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         ),
                       ),
                       if (showLutPanel)
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () =>
+                                setState(() => _showLutPanel = false),
+                          ),
+                        ),
+                      if (showLutPanel)
                         Positioned(
                           left: 12,
                           right: 84,
@@ -716,6 +800,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                           child: _InstantLutPanel(
                             selectedLut: cs.selectedLut,
                             lutIntensity: cs.lutIntensity,
+                            canEdit: canEditFilmLook,
                             onClose: () =>
                                 setState(() => _showLutPanel = false),
                             onSelected: (lut) =>
@@ -734,7 +819,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         )
                       else if (cs.activeSession == null)
                         _NoFilmLoadedHint(
-                          onStartTap: openCheckIn,
+                          onStartTap: debugSettings.zooFeaturesEnabled
+                              ? () => _openCheckIn(context)
+                              : null,
                           onInstantTap: () async {
                             await ref
                                 .read(cameraProvider.notifier)
@@ -833,31 +920,75 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
         child: previewPath == null
             ? const SizedBox.expand(child: MockPhotoView())
             : SizedBox.expand(
-                child: FilmProcessedSurface(
-                  lutType: effectiveLut,
-                  lutIntensity: effectiveLutIntensity,
-                  animated: true,
-                  child: Image.file(
-                    File(previewPath),
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    errorBuilder: (_, __, ___) => const MockPhotoView(),
-                  ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    cs.filmPreviewEnabled
+                        ? FilmShaderImage(
+                            imagePath: previewPath,
+                            lutType: effectiveLut,
+                            lutIntensity: effectiveLutIntensity,
+                            shaderAssetOverride: cs.filmShaderAssetOverride,
+                            fit: BoxFit.cover,
+                            animateGrain: true,
+                          )
+                        : (File(previewPath).existsSync()
+                            ? Image.file(File(previewPath), fit: BoxFit.cover)
+                            : const MockPhotoView()),
+                    if (cs.showGrid)
+                      const IgnorePointer(
+                        child: CustomPaint(painter: GridPainter()),
+                      ),
+                  ],
                 ),
               ),
       );
     }
 
     // Real camera: no scale transform — iOS/Android driver handles lens switching.
-    return FilmPreviewWidget(
-      textureId: cs.textureId!,
-      lutType: effectiveLut,
-      lutIntensity: effectiveLutIntensity,
-      showGrid: cs.showGrid,
-      lightLeak: cs.lightLeak,
+    if (cs.filmPreviewEnabled) {
+      return FilmPreviewWidget(
+        textureId: cs.textureId!,
+        lutType: effectiveLut,
+        lutIntensity: effectiveLutIntensity,
+        showGrid: cs.showGrid,
+        lightLeak: cs.lightLeak,
+        onTapUp: _onTapUp,
+        focusIndicator: _focusPoint != null
+            ? Positioned(
+                left: _focusPoint!.dx - 32,
+                top: _focusPoint!.dy - 32,
+                child: AnimatedBuilder(
+                  animation: _focusController,
+                  builder: (_, __) => Transform.scale(
+                    scale: _focusScale.value,
+                    child: Opacity(
+                      opacity: _focusOpacity.value,
+                      child: SizedBox(
+                        width: 64,
+                        height: 64,
+                        child: CustomPaint(painter: _FocusReticlePainter()),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            : null,
+      );
+    }
+
+    return GestureDetector(
       onTapUp: _onTapUp,
-      focusIndicator: _focusPoint != null
-          ? Positioned(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Texture(textureId: cs.textureId!),
+          if (cs.showGrid)
+            const IgnorePointer(
+              child: CustomPaint(painter: GridPainter()),
+            ),
+          if (_focusPoint != null)
+            Positioned(
               left: _focusPoint!.dx - 32,
               top: _focusPoint!.dy - 32,
               child: AnimatedBuilder(
@@ -874,8 +1005,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                   ),
                 ),
               ),
-            )
-          : null,
+            ),
+        ],
+      ),
     );
   }
 }
@@ -971,7 +1103,7 @@ class _SessionIndicator extends StatelessWidget {
 }
 
 class _NoFilmLoadedHint extends StatelessWidget {
-  final VoidCallback onStartTap;
+  final VoidCallback? onStartTap;
   final Future<void> Function() onInstantTap;
 
   const _NoFilmLoadedHint({
@@ -2292,6 +2424,7 @@ class _OverlayActionButton extends StatelessWidget {
 class _InstantLutPanel extends StatelessWidget {
   final LutType selectedLut;
   final double lutIntensity;
+  final bool canEdit;
   final VoidCallback onClose;
   final ValueChanged<LutType> onSelected;
   final ValueChanged<double> onIntensityChanged;
@@ -2299,6 +2432,7 @@ class _InstantLutPanel extends StatelessWidget {
   const _InstantLutPanel({
     required this.selectedLut,
     required this.lutIntensity,
+    required this.canEdit,
     required this.onClose,
     required this.onSelected,
     required this.onIntensityChanged,
@@ -2327,7 +2461,7 @@ class _InstantLutPanel extends StatelessWidget {
               Row(
                 children: [
                   const Text(
-                    '現像後の色味',
+                    'フィルムセレクト',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 11,
@@ -2354,7 +2488,9 @@ class _InstantLutPanel extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'ファインダーには反映せず、見返すときにだけ色味を切り替えます。',
+                canEdit
+                    ? 'ファインダーと仕上がりの雰囲気に反映されます。'
+                    : '撮影開始後は変更できません。',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.54),
                   fontSize: 11,
@@ -2365,6 +2501,7 @@ class _InstantLutPanel extends StatelessWidget {
               LutSelectorWidget(
                 selected: selectedLut,
                 onSelected: onSelected,
+                enabled: canEdit,
               ),
               _LutIntensitySlider(
                 value: lutIntensity,
@@ -2386,10 +2523,12 @@ class _ControlDock extends StatelessWidget {
   final bool lutActive;
   final bool showLutButton;
   final bool flashActive;
+  final bool filmViewActive;
   final VoidCallback onToggle;
   final VoidCallback onAspectRatioTap;
   final VoidCallback onTimerTap;
   final VoidCallback onLutTap;
+  final VoidCallback onFilmViewTap;
   final VoidCallback onFlashTap;
   final VoidCallback onSettingsTap;
 
@@ -2401,10 +2540,12 @@ class _ControlDock extends StatelessWidget {
     required this.lutActive,
     required this.showLutButton,
     required this.flashActive,
+    required this.filmViewActive,
     required this.onToggle,
     required this.onAspectRatioTap,
     required this.onTimerTap,
     required this.onLutTap,
+    required this.onFilmViewTap,
     required this.onFlashTap,
     required this.onSettingsTap,
   });
@@ -2462,12 +2603,19 @@ class _ControlDock extends StatelessWidget {
                           if (showLutButton) ...[
                             _DockButton(
                               icon: Icons.photo_filter,
-                              label: 'LUT',
+                              label: 'FILM',
                               active: lutActive,
                               onTap: onLutTap,
                             ),
                             const SizedBox(height: 8),
                           ],
+                          _DockButton(
+                            icon: Icons.layers_outlined,
+                            label: 'VIEW',
+                            active: filmViewActive,
+                            onTap: onFilmViewTap,
+                          ),
+                          const SizedBox(height: 8),
                           _DockButton(
                             icon:
                                 flashActive ? Icons.flash_on : Icons.flash_off,
@@ -2571,7 +2719,7 @@ class _DockButton extends StatelessWidget {
   }
 }
 
-// ── LUT強度スライダー ─────────────────────────────────────────
+// ── フィルム強度スライダー ────────────────────────────────────
 
 class _LutIntensitySlider extends StatelessWidget {
   final double value;
