@@ -11,6 +11,7 @@ import '../../core/models/film_session.dart';
 import '../../core/models/photo.dart';
 import '../../core/navigation/main_tab_provider.dart';
 import '../../core/services/camera_service.dart';
+import '../../core/config/camera_settings.dart';
 import '../../core/utils/routes.dart';
 import '../../core/widgets/mock_photo.dart';
 import '../checkin/checkin_screen.dart';
@@ -343,6 +344,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
     if (_showLutPanel) {
       setState(() => _showLutPanel = false);
     }
+    final preferredMode =
+        ref.read(cameraSettingsProvider).preferredCaptureMode;
     showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -361,22 +364,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                   cs.selectedLut,
                 ),
                 aspectRatio: cs.aspectRatio,
-                onSetMode: (mode) async {
-                  final session = cs.activeSession;
-                  if (session?.isFilmMode == true &&
-                      mode == CaptureMode.instant) {
-                    Navigator.pop(dialogContext);
-                    _showSwitchToInstantWarning();
-                    return;
-                  }
-                  if (session?.isInstantMode == true &&
-                      mode == CaptureMode.film) {
-                    Navigator.pop(dialogContext);
-                    _showSwitchToFilmWarning();
-                    return;
-                  }
-                  await ref.read(cameraProvider.notifier).setCaptureMode(mode);
-                },
                 onOpenLut: () {
                   Navigator.pop(dialogContext);
                   HapticFeedback.selectionClick();
@@ -402,6 +389,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                             Navigator.pop(dialogContext);
                             _showCheckOutDialog();
                           },
+                preferredCaptureMode: preferredMode,
               ),
             ),
           ),
@@ -618,6 +606,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
   Widget build(BuildContext context) {
     final cs = ref.watch(cameraProvider);
     final debugSettings = ref.watch(debugSettingsProvider);
+    final cameraSettings = ref.watch(cameraSettingsProvider);
     final screenHeight = MediaQuery.sizeOf(context).height;
     final isCompactHeight = screenHeight < 760;
     final session = cs.activeSession;
@@ -819,6 +808,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen>
                         )
                       else if (cs.activeSession == null)
                         _NoFilmLoadedHint(
+                          preferredCaptureMode:
+                              cameraSettings.preferredCaptureMode,
                           onStartTap: debugSettings.zooFeaturesEnabled
                               ? () => _openCheckIn(context)
                               : null,
@@ -1105,14 +1096,17 @@ class _SessionIndicator extends StatelessWidget {
 class _NoFilmLoadedHint extends StatelessWidget {
   final VoidCallback? onStartTap;
   final Future<void> Function() onInstantTap;
+  final CaptureMode preferredCaptureMode;
 
   const _NoFilmLoadedHint({
     required this.onStartTap,
     required this.onInstantTap,
+    required this.preferredCaptureMode,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isFilmPreferred = preferredCaptureMode == CaptureMode.film;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
@@ -1148,7 +1142,7 @@ class _NoFilmLoadedHint extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'ロールを作って撮影を始めましょう',
+                          '撮影の準備ができています',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 13,
@@ -1157,7 +1151,9 @@ class _NoFilmLoadedHint extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '今日フィルムを作れない日でも、インスタントならすぐ始められます。',
+                          isFilmPreferred
+                              ? '今日のロールを作って、27枚を一本に残します。'
+                              : 'すぐ撮って、そのまま下書きとして残せます。',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.58),
                             fontSize: 11,
@@ -1171,7 +1167,7 @@ class _NoFilmLoadedHint extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       FilledButton(
-                        onPressed: onStartTap,
+                        onPressed: isFilmPreferred ? onStartTap : onInstantTap,
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.black,
@@ -1182,7 +1178,7 @@ class _NoFilmLoadedHint extends StatelessWidget {
                           minimumSize: Size.zero,
                         ),
                         child: const Text(
-                          'ロールをつくる',
+                          '撮影を始める',
                           style: TextStyle(
                             fontSize: 12,
                             letterSpacing: 0.8,
@@ -1191,27 +1187,14 @@ class _NoFilmLoadedHint extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      OutlinedButton(
-                        onPressed: onInstantTap,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF9FE2DC),
-                          side: BorderSide(
-                            color:
-                                const Color(0xFF77C8C1).withValues(alpha: 0.4),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          minimumSize: Size.zero,
-                        ),
-                        child: const Text(
-                          'インスタント',
-                          style: TextStyle(
-                            fontSize: 11,
-                            letterSpacing: 0.6,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      Text(
+                        isFilmPreferred
+                            ? '撮影モード: フィルム'
+                            : '撮影モード: インスタント',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.46),
+                          fontSize: 10,
+                          letterSpacing: 0.8,
                         ),
                       ),
                     ],
@@ -1337,29 +1320,30 @@ class _RollStatusCard extends StatelessWidget {
   final bool isCapturing;
   final LutType selectedLut;
   final AspectRatioMode aspectRatio;
-  final Future<void> Function(CaptureMode) onSetMode;
   final VoidCallback onOpenLut;
   final VoidCallback onOpenCheckIn;
   final Future<void> Function() onStartInstant;
   final VoidCallback onOpenAlbum;
   final VoidCallback? onCheckOut;
+  final CaptureMode preferredCaptureMode;
 
   const _RollStatusCard({
     required this.session,
     required this.isCapturing,
     required this.selectedLut,
     required this.aspectRatio,
-    required this.onSetMode,
     required this.onOpenLut,
     required this.onOpenCheckIn,
     required this.onStartInstant,
     required this.onOpenAlbum,
     required this.onCheckOut,
+    required this.preferredCaptureMode,
   });
 
   @override
   Widget build(BuildContext context) {
     if (this.session == null) {
+      final isFilmPreferred = preferredCaptureMode == CaptureMode.film;
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -1406,66 +1390,51 @@ class _RollStatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'フィルムを始めるか、そのままインスタントで撮るかをここから選べます。',
+              isFilmPreferred
+                  ? '今日のロールを作って、27枚を一本に残します。'
+                  : 'インスタントで撮って、あとからフィルムにまとめられます。',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.58),
                 fontSize: 12,
                 height: 1.6,
               ),
             ),
-            const SizedBox(height: 14),
-            const Row(
-              children: [
-                Expanded(
-                  child: _ModeSummaryCard(
-                    title: 'フィルム',
-                    body: '27枚で残す一本。撮り切ったあと1時間待って現像します。',
-                  ),
-                ),
-                SizedBox(width: 10),
-                Expanded(
-                  child: _ModeSummaryCard(
-                    title: 'インスタント',
-                    body: 'すぐ撮れて、そのままアルバムに残ります。',
-                  ),
-                ),
-              ],
+            const SizedBox(height: 6),
+            Text(
+              '撮影モードは設定で変更できます。',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.42),
+                fontSize: 11,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
                   child: FilledButton(
-                    onPressed: onOpenCheckIn,
+                    onPressed: isFilmPreferred ? onOpenCheckIn : onStartInstant,
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.black,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     child: const Text(
-                      '今日のロールをつくる',
+                      '撮影を始める',
                       style: TextStyle(letterSpacing: 1.5),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: onStartInstant,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: BorderSide(
-                        color: const Color(0xFF77C8C1).withValues(alpha: 0.5),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: const Text(
-                      'インスタントを始める',
-                      style: TextStyle(letterSpacing: 1.1),
-                    ),
-                  ),
-                ),
               ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              isFilmPreferred ? '撮影モード: フィルム' : '撮影モード: インスタント',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.46),
+                fontSize: 10,
+                letterSpacing: 0.9,
+              ),
             ),
             const SizedBox(height: 10),
             SizedBox(
@@ -1522,11 +1491,24 @@ class _RollStatusCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CaptureModeToggle(
-            current: session.captureMode,
-            onChanged: onSetMode,
+          Text(
+            session.isFilmMode ? '撮影モード: フィルム' : '撮影モード: インスタント',
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 10,
+              letterSpacing: 2.0,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 4),
+          Text(
+            'モード変更は設定から行います。',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.38),
+              fontSize: 10,
+            ),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Container(
@@ -1867,271 +1849,6 @@ class _RollMetaChip extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ModeSummaryCard extends StatelessWidget {
-  final String title;
-  final String body;
-
-  const _ModeSummaryCard({
-    required this.title,
-    required this.body,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            body,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.54),
-              fontSize: 11,
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CaptureModeToggle extends StatelessWidget {
-  final CaptureMode current;
-  final Future<void> Function(CaptureMode) onChanged;
-
-  const _CaptureModeToggle({
-    required this.current,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isFilm = current == CaptureMode.film;
-    final statusLabel = isFilm ? '現在はフィルム' : '現在はインスタント';
-    final statusBody = isFilm
-        ? '27枚を撮り切ってから現像する流れです。インスタントを押すと、いまのフィルムをしまって切り替えます。'
-        : '撮るとすぐアルバムに入ります。フィルムを押すと、新しいロール作成へ進みます。';
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF050505),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _CaptureModeButton(
-                  icon: Icons.camera_roll_outlined,
-                  label: 'フィルム',
-                  subtitle: '27枚で1本',
-                  detail: current == CaptureMode.film ? 'いま撮影中' : '新しいロールを作る',
-                  accentColor: const Color(0xFFD8B26B),
-                  selected: current == CaptureMode.film,
-                  onTap: () => onChanged(CaptureMode.film),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _CaptureModeButton(
-                  icon: Icons.bolt_rounded,
-                  label: 'インスタント',
-                  subtitle: 'すぐ残る',
-                  detail: current == CaptureMode.instant ? 'いま撮影中' : 'すぐ撮影へ切替',
-                  accentColor: const Color(0xFF77C8C1),
-                  selected: current == CaptureMode.instant,
-                  onTap: () => onChanged(CaptureMode.instant),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 2),
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isFilm
-                        ? const Color(0xFFD8B26B)
-                        : const Color(0xFF77C8C1),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        statusLabel,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.1,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        statusBody,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.46),
-                          fontSize: 10,
-                          height: 1.45,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CaptureModeButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String subtitle;
-  final String detail;
-  final Color accentColor;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _CaptureModeButton({
-    required this.icon,
-    required this.label,
-    required this.subtitle,
-    required this.detail,
-    required this.accentColor,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
-          decoration: BoxDecoration(
-            color: selected
-                ? accentColor.withValues(alpha: 0.16)
-                : const Color(0xFF050505),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: selected
-                  ? accentColor.withValues(alpha: 0.78)
-                  : Colors.white10,
-              width: selected ? 1.1 : 0.8,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    icon,
-                    size: 15,
-                    color: selected ? accentColor : Colors.white38,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: selected ? Colors.white : Colors.white60,
-                        fontSize: 13,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  if (selected)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '選択中',
-                        style: TextStyle(
-                          color: accentColor,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: selected ? Colors.white70 : Colors.white54,
-                  fontSize: 11,
-                  height: 1.25,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                detail,
-                style: TextStyle(
-                  color: selected ? Colors.white60 : Colors.white38,
-                  fontSize: 9,
-                  height: 1.3,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

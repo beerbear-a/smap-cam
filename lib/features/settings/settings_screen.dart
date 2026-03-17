@@ -242,6 +242,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 inactiveTrackColor: Colors.white12,
               ),
             ),
+            _SettingsTile(
+              title: '撮影モード',
+              subtitle: '撮影画面で使う標準モードを選びます',
+              trailing: _CaptureModeSelector(
+                value: ref.watch(
+                  cameraSettingsProvider.select(
+                    (s) => s.preferredCaptureMode,
+                  ),
+                ),
+                onChanged: (mode) => ref
+                    .read(cameraSettingsProvider.notifier)
+                    .setPreferredCaptureMode(mode),
+              ),
+            ),
             const _SettingsTile(
               title: 'フィルム枚数',
               subtitle: '1本あたりの撮影枚数',
@@ -662,6 +676,49 @@ class _SettingsTileLabel extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _CaptureModeSelector extends StatelessWidget {
+  final CaptureMode value;
+  final ValueChanged<CaptureMode> onChanged;
+
+  const _CaptureModeSelector({
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<CaptureMode>(
+          value: value,
+          dropdownColor: const Color(0xFF111111),
+          icon: const Icon(Icons.expand_more, color: Colors.white54),
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+          items: const [
+            DropdownMenuItem(
+              value: CaptureMode.film,
+              child: Text('フィルム'),
+            ),
+            DropdownMenuItem(
+              value: CaptureMode.instant,
+              child: Text('インスタント'),
+            ),
+          ],
+          onChanged: (mode) {
+            if (mode != null) onChanged(mode);
+          },
+        ),
+      ),
     );
   }
 }

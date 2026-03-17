@@ -86,6 +86,24 @@ class AlbumSessionEntry {
   bool get hasAiDraft => latestAiDraft != null;
 }
 
+class AlbumLocationGroup {
+  final String name;
+  final List<AlbumSessionEntry> sessions;
+  final AlbumSessionEntry latestSession;
+  final Photo? coverPhoto;
+  final DateTime latestDate;
+
+  const AlbumLocationGroup({
+    required this.name,
+    required this.sessions,
+    required this.latestSession,
+    required this.coverPhoto,
+    required this.latestDate,
+  });
+
+  int get rollCount => sessions.length;
+}
+
 Widget _albumPhotoWidget({
   required FilmSession session,
   required Photo photo,
@@ -95,7 +113,9 @@ Widget _albumPhotoWidget({
   if (!file.existsSync()) return MockPhotoView(fit: fit);
 
   final isBakedFilm =
-      session.isFilmMode && photo.imagePath.endsWith('_film.png');
+      session.isFilmMode &&
+      (photo.imagePath.endsWith('_film.png') ||
+          photo.imagePath.endsWith('_film_premium.png'));
   if (session.isFilmMode && !isBakedFilm) {
     return FilmShaderImage(
       imagePath: photo.imagePath,
@@ -147,6 +167,7 @@ class AlbumOverview {
   final List<AlbumPhotoEntry> recentFilmPhotos;
   final List<AlbumPhotoEntry> instantPhotos;
   final AlbumSessionEntry? activeInstantSession;
+  final List<AlbumLocationGroup> locationGroups;
 
   const AlbumOverview({
     required this.shootingFilmSessions,
@@ -155,6 +176,7 @@ class AlbumOverview {
     required this.recentFilmPhotos,
     required this.instantPhotos,
     required this.activeInstantSession,
+    required this.locationGroups,
   });
 
   bool get isEmpty =>
@@ -250,6 +272,28 @@ final albumOverviewProvider = FutureProvider<AlbumOverview>((ref) async {
     }
   }
 
+  final locationBuckets = <String, List<AlbumSessionEntry>>{};
+  for (final entry in developed) {
+    final name = entry.session.locationName?.trim();
+    if (name == null || name.isEmpty) continue;
+    locationBuckets.putIfAbsent(name, () => []).add(entry);
+  }
+  final locationGroups = locationBuckets.entries.map((entry) {
+    final sortedSessions = entry.value
+      ..sort((a, b) => b.session.date.compareTo(a.session.date));
+    final latestSession = sortedSessions.first;
+    final coverPhoto = latestSession.coverPhoto ??
+        (latestSession.photos.isNotEmpty ? latestSession.photos.last : null);
+    return AlbumLocationGroup(
+      name: entry.key,
+      sessions: sortedSessions,
+      latestSession: latestSession,
+      coverPhoto: coverPhoto,
+      latestDate: latestSession.session.date,
+    );
+  }).toList()
+    ..sort((a, b) => b.latestDate.compareTo(a.latestDate));
+
   recentFilmPhotos.sort(
     (a, b) => b.sortTimestamp.compareTo(a.sortTimestamp),
   );
@@ -264,6 +308,7 @@ final albumOverviewProvider = FutureProvider<AlbumOverview>((ref) async {
     recentFilmPhotos: recentFilmPhotos,
     instantPhotos: instantPhotos,
     activeInstantSession: activeInstantSession,
+    locationGroups: locationGroups,
   );
 });
 
@@ -470,6 +515,26 @@ class _AlbumBody extends StatelessWidget {
               itemBuilder: (context, index) {
                 final entry = overview.recentFilmPhotos[index];
                 return _RecentPhotoCard(entry: entry);
+              },
+            ),
+          ),
+        ],
+        if (overview.locationGroups.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          const _SectionHeader(
+            title: '場所ごとのロール',
+            subtitle: 'チェックインした場所でロールを束ねます。',
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 160,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: overview.locationGroups.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final group = overview.locationGroups[index];
+                return _LocationGroupCard(group: group);
               },
             ),
           ),
@@ -1639,6 +1704,82 @@ class _RecentPhotoCard extends StatelessWidget {
   }
 }
 
+class _LocationGroupCard extends StatelessWidget {
+  final AlbumLocationGroup group;
+
+  const _LocationGroupCard({required this.group});
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = group.coverPhoto;
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => _LocationRollListScreen(group: group),
+          ),
+        );
+      },
+      child: SizedBox(
+        width: 220,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+                child: SizedBox(
+                  height: 92,
+                  width: double.infinity,
+                  child: cover == null
+                      ? const MockPhotoView(fit: BoxFit.cover)
+                      : _albumPhotoWidget(
+                          session: group.latestSession.session,
+                          photo: cover,
+                        ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${group.rollCount} ロール · ${_formatDate(group.latestDate)}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _InstantPhotoTile extends StatelessWidget {
   final AlbumPhotoEntry entry;
 
@@ -1754,6 +1895,39 @@ class _InstantAlbumScreen extends StatelessWidget {
         itemCount: photos.length,
         itemBuilder: (context, index) =>
             _InstantPhotoTile(entry: photos[index]),
+      ),
+    );
+  }
+}
+
+class _LocationRollListScreen extends StatelessWidget {
+  final AlbumLocationGroup group;
+
+  const _LocationRollListScreen({required this.group});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          group.name,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w300,
+          ),
+        ),
+      ),
+      body: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        itemCount: group.sessions.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 14),
+        itemBuilder: (context, index) {
+          final entry = group.sessions[index];
+          return _ArchiveSessionCard(entry: entry);
+        },
       ),
     );
   }

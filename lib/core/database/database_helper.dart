@@ -377,6 +377,19 @@ class DatabaseHelper {
     );
   }
 
+  static Future<void> updatePhotoImagePath(
+    String photoId,
+    String imagePath,
+  ) async {
+    final db = await database;
+    await db.update(
+      tablePhotos,
+      {'image_path': imagePath},
+      where: 'photo_id = ?',
+      whereArgs: [photoId],
+    );
+  }
+
   static Future<void> movePhotosToSession({
     required String fromSessionId,
     required String toSessionId,

@@ -13,7 +13,9 @@ import '../../core/utils/routes.dart';
 import '../../core/widgets/mock_photo.dart';
 import '../album/photo_viewer_screen.dart';
 import '../camera/film_session_notifier.dart';
+import '../camera/film_still_service.dart';
 import '../camera/widgets/film_preview.dart';
+import 'develop_preset.dart';
 import '../journal/journal_screen.dart';
 import '../share/contact_sheet_service.dart';
 
@@ -51,6 +53,9 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
   String? _indexSheetPath;
   bool _isGeneratingIndexSheet = false;
   Timer? _waitingTimer;
+  DevelopPreset _selectedPreset = DevelopPreset.standard;
+  DevelopPreset? _appliedPreset;
+  bool _isApplyingPreset = false;
 
   LutType get _effectiveLutType =>
       _session?.isFilmMode == true ? LutType.natural : widget.lutType;
@@ -104,6 +109,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
         _photos = photos;
         _indexSheetPath = session.indexSheetPath;
         _isDone = true;
+        _syncPresetState(photos);
       });
       _fadeController.forward();
       return;
@@ -116,6 +122,7 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
         _photos = photos;
         _indexSheetPath = session.indexSheetPath;
         _isWaiting = true;
+        _syncPresetState(photos);
       });
       // 30秒ごとに残り時間表示を更新
       _waitingTimer?.cancel();
@@ -137,11 +144,102 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
         _indexSheetPath = session.indexSheetPath;
         _isDone = true;
         _isWaiting = false;
+        _syncPresetState(photos);
       });
       _fadeController.forward();
       if (session.isFilmMode && photos.length >= FilmSession.maxPhotos) {
         _generateIndexSheet(session, photos);
       }
+    }
+  }
+
+  void _syncPresetState(List<Photo> photos) {
+    final applied = _resolveAppliedPreset(photos);
+    _appliedPreset = applied;
+    if (applied != null) {
+      _selectedPreset = applied;
+    }
+  }
+
+  DevelopPreset? _resolveAppliedPreset(List<Photo> photos) {
+    if (photos.isEmpty) return null;
+    final allPremium =
+        photos.every((photo) => photo.imagePath.endsWith('_film_premium.png'));
+    if (allPremium) return DevelopPreset.premium;
+    final allStandard =
+        photos.every(
+          (photo) =>
+              photo.imagePath.endsWith('_film.png') ||
+              photo.imagePath.endsWith('_film_premium.png'),
+        );
+    if (allStandard) return DevelopPreset.standard;
+    return null;
+  }
+
+  String _rawPathFor(String path) {
+    if (path.endsWith('_film_premium.png')) {
+      return path.replaceAll('_film_premium.png', '.jpg');
+    }
+    if (path.endsWith('_film.png')) {
+      return path.replaceAll('_film.png', '.jpg');
+    }
+    return path;
+  }
+
+  String _bakedPathFor(String rawPath, DevelopPreset preset) {
+    return rawPath.replaceAll(
+      '.jpg',
+      preset == DevelopPreset.premium ? '_film_premium.png' : '_film.png',
+    );
+  }
+
+  Future<void> _applyDevelopPreset(DevelopPreset preset) async {
+    final session = _session;
+    if (_isApplyingPreset || session == null || _photos.isEmpty) return;
+    setState(() => _isApplyingPreset = true);
+    try {
+      final updatedPhotos = <Photo>[];
+      for (final photo in _photos) {
+        final rawPath = _rawPathFor(photo.imagePath);
+        final inputPath = File(rawPath).existsSync()
+            ? rawPath
+            : photo.imagePath;
+        final bakedPath = _bakedPathFor(rawPath, preset);
+        final outputPath = await FilmStillService.bakeFilmPhoto(
+          inputPath: inputPath,
+          outputPath: bakedPath,
+          lutType: _effectiveLutType,
+          intensity: 1.0,
+          preset: preset,
+        );
+        await DatabaseHelper.updatePhotoImagePath(
+          photo.photoId,
+          outputPath,
+        );
+        updatedPhotos.add(photo.copyWith(imagePath: outputPath));
+      }
+
+      if (session.isFilmMode && updatedPhotos.length >= FilmSession.maxPhotos) {
+        final indexPath = await ContactSheetService.generate(
+          session: session,
+          photos: updatedPhotos,
+          format: ContactSheetFormat.indexSheet,
+          persist: true,
+        );
+        final updatedSession = session.copyWith(indexSheetPath: indexPath);
+        await DatabaseHelper.updateFilmSession(updatedSession);
+        _indexSheetPath = indexPath;
+        _session = updatedSession;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _photos = updatedPhotos;
+        _appliedPreset = preset;
+        _selectedPreset = preset;
+      });
+    } finally {
+      if (mounted) setState(() => _isApplyingPreset = false);
     }
   }
 
@@ -752,6 +850,21 @@ class _DevelopScreenState extends ConsumerState<DevelopScreen>
                   ),
                 ),
               ),
+            if (_session?.isFilmMode == true && _photos.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 18),
+                  child: _DevelopPresetCard(
+                    selected: _selectedPreset,
+                    applied: _appliedPreset,
+                    isApplying: _isApplyingPreset,
+                    onSelect: (preset) {
+                      setState(() => _selectedPreset = preset);
+                    },
+                    onApply: () => _applyDevelopPreset(_selectedPreset),
+                  ),
+                ),
+              ),
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 2),
               sliver: SliverGrid(
@@ -956,6 +1069,160 @@ class _IndexSheetCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DevelopPresetCard extends StatelessWidget {
+  final DevelopPreset selected;
+  final DevelopPreset? applied;
+  final bool isApplying;
+  final ValueChanged<DevelopPreset> onSelect;
+  final VoidCallback onApply;
+
+  const _DevelopPresetCard({
+    required this.selected,
+    required this.applied,
+    required this.isApplying,
+    required this.onSelect,
+    required this.onApply,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isApplied = applied == selected;
+    final applyLabel = isApplying
+        ? '仕上げを適用中...'
+        : applied == null
+            ? 'この仕上げで保存'
+            : isApplied
+                ? '適用済み'
+                : 'この仕上げに切り替える';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '現像プリセット',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              letterSpacing: 2.0,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _PresetOptionButton(
+                  title: DevelopPreset.standard.label,
+                  subtitle: DevelopPreset.standard.subtitle,
+                  selected: selected == DevelopPreset.standard,
+                  onTap: () => onSelect(DevelopPreset.standard),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _PresetOptionButton(
+                  title: DevelopPreset.premium.label,
+                  subtitle: DevelopPreset.premium.subtitle,
+                  selected: selected == DevelopPreset.premium,
+                  onTap: () => onSelect(DevelopPreset.premium),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed:
+                  isApplying || (applied != null && isApplied) ? null : onApply,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: Text(
+                applyLabel,
+                style: const TextStyle(letterSpacing: 1.2),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PresetOptionButton extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PresetOptionButton({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.white.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? Colors.white.withValues(alpha: 0.4)
+                  : Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.54),
+                  fontSize: 10,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1227,7 +1494,8 @@ class _FilmPhotoState extends State<_FilmPhoto>
           borderRadius: BorderRadius.circular(12),
           child: !file.existsSync()
               ? const MockPhotoView()
-              : widget.photo.imagePath.endsWith('_film.png')
+              : widget.photo.imagePath.endsWith('_film.png') ||
+                  widget.photo.imagePath.endsWith('_film_premium.png')
                   ? Image.file(file, fit: BoxFit.cover)
                   : FilmShaderImage(
                       imagePath: widget.photo.imagePath,
@@ -1260,7 +1528,8 @@ class _PhotoDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final file = File(photo.imagePath);
-    final isBaked = photo.imagePath.endsWith('_film.png');
+    final isBaked = photo.imagePath.endsWith('_film.png') ||
+        photo.imagePath.endsWith('_film_premium.png');
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -1384,7 +1653,8 @@ class _FilmHeroPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final file = File(photo.imagePath);
-    final isBaked = photo.imagePath.endsWith('_film.png');
+    final isBaked = photo.imagePath.endsWith('_film.png') ||
+        photo.imagePath.endsWith('_film_premium.png');
 
     return Stack(
       fit: StackFit.expand,

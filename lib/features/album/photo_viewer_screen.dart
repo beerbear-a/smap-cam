@@ -399,7 +399,8 @@ class _PhotoViewerScreenState extends ConsumerState<PhotoViewerScreen> {
 
     final photo = item.photo!;
     // 既にシェーダーが焼き込まれた画像はそのまま表示
-    if (photo.imagePath.endsWith('_film.png')) {
+    if (photo.imagePath.endsWith('_film.png') ||
+        photo.imagePath.endsWith('_film_premium.png')) {
       return Image.file(file, fit: BoxFit.contain);
     }
 

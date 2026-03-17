@@ -12,7 +12,6 @@ import '../../core/models/photo.dart';
 import '../../core/services/camera_service.dart';
 import '../../core/config/debug_settings.dart';
 import '../../core/config/camera_settings.dart';
-import 'film_still_service.dart';
 import 'widgets/film_preview.dart';
 
 // ── 焦点距離（換算35mm）──────────────────────────────────────
@@ -598,24 +597,7 @@ class CameraNotifier extends StateNotifier<CameraState> {
         // Vision 失敗時はメモなしで続行。
       }
 
-      if (session.isFilmMode) {
-        final bakedPath = savePath.replaceAll('.jpg', '_film.png');
-        try {
-          savedPath = await FilmStillService.bakeFilmPhoto(
-            inputPath: savedPath,
-            outputPath: bakedPath,
-            lutType: state.selectedLut,
-            intensity: state.lutIntensity,
-            shaderAssetOverride: state.filmShaderAssetOverride,
-          );
-          final rawFile = File(savePath);
-          if (rawFile.existsSync()) {
-            await rawFile.delete();
-          }
-        } catch (_) {
-          // フィルム焼き込みに失敗しても写真自体は失わない。
-        }
-      }
+      // フィルム焼き込みは現像時に行うため、ここでは元画像を保持する。
 
       final photo = Photo(
         photoId: photoId,

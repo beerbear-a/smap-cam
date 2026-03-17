@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import '../../core/config/runtime_compatibility.dart';
 import '../../shader/fragment_program_cache.dart';
+import '../develop/develop_preset.dart';
 import 'widgets/film_preview.dart';
 
 class FilmStillService {
@@ -15,6 +16,7 @@ class FilmStillService {
     LutType lutType = LutType.natural,
     double intensity = 1.0,
     String? shaderAssetOverride,
+    DevelopPreset preset = DevelopPreset.standard,
   }) async {
     if (RuntimeCompatibility.disableFragmentShaders) {
       return _bakeWithCanvas(
@@ -22,6 +24,7 @@ class FilmStillService {
         outputPath: outputPath,
         lutType: lutType,
         intensity: intensity,
+        preset: preset,
       );
     }
 
@@ -31,6 +34,7 @@ class FilmStillService {
       lutType: lutType,
       intensity: intensity,
       shaderAssetOverride: shaderAssetOverride,
+      preset: preset,
     );
   }
 
@@ -40,6 +44,7 @@ class FilmStillService {
     required LutType lutType,
     required double intensity,
     String? shaderAssetOverride,
+    required DevelopPreset preset,
   }) async {
     final bytes = await File(inputPath).readAsBytes();
     final codec = await ui.instantiateImageCodec(
@@ -57,8 +62,10 @@ class FilmStillService {
     final program = await loadFragmentProgram(shaderAsset);
     final shader = program.fragmentShader();
 
-    final params =
-        lutType.shaderParams.lerp(intensity.clamp(0.0, 1.0));
+    final params = _applyDevelopPreset(
+      lutType.shaderParams.lerp(intensity.clamp(0.0, 1.0)),
+      preset,
+    );
     final seed = _stableSeed(inputPath);
     final time = (seed % 1000) / 10.0;
 
@@ -123,6 +130,7 @@ class FilmStillService {
     required String outputPath,
     required LutType lutType,
     required double intensity,
+    required DevelopPreset preset,
   }) async {
     final bytes = await File(inputPath).readAsBytes();
     final codec = await ui.instantiateImageCodec(
@@ -142,9 +150,14 @@ class FilmStillService {
       ui.Rect.fromLTWH(0, 0, width, height),
     );
 
+    final effectiveIntensity = preset == DevelopPreset.premium
+        ? (intensity * 1.1).clamp(0.0, 1.0)
+        : intensity;
+    final premiumBoost = preset == DevelopPreset.premium ? 1.15 : 1.0;
+
     final paint = ui.Paint()
       ..colorFilter = ui.ColorFilter.matrix(
-        _interpolateMatrix(lutType.colorMatrix, intensity.clamp(0.0, 1.0)),
+        _interpolateMatrix(lutType.colorMatrix, effectiveIntensity),
       )
       ..filterQuality = ui.FilterQuality.high;
 
@@ -152,13 +165,13 @@ class FilmStillService {
     _drawVignette(
       canvas,
       size,
-      lutType.vignetteStrength * intensity.clamp(0.0, 1.0),
+      lutType.vignetteStrength * effectiveIntensity * premiumBoost,
     );
     _drawGrain(
       canvas,
       size,
       lutType: lutType,
-      intensity: intensity.clamp(0.0, 1.0),
+      intensity: (effectiveIntensity * premiumBoost).clamp(0.0, 1.0),
       seed: _stableSeed(inputPath),
     );
 
@@ -207,6 +220,36 @@ class FilmStillService {
     return List.generate(
       20,
       (i) => identity[i] + (lut[i] - identity[i]) * t,
+    );
+  }
+
+  static FilmShaderParams _applyDevelopPreset(
+    FilmShaderParams params,
+    DevelopPreset preset,
+  ) {
+    if (preset == DevelopPreset.standard) return params;
+    double clamp01(double v, {double max = 1.2}) =>
+        v.clamp(0.0, max).toDouble();
+    return FilmShaderParams(
+      warmth: params.warmth,
+      saturation: clamp01(params.saturation * 1.06, max: 1.4),
+      shadowLift: params.shadowLift,
+      highlightRolloff: params.highlightRolloff,
+      grainAmount: clamp01(params.grainAmount * 1.15),
+      vignetteStrength: clamp01(params.vignetteStrength * 1.12),
+      halationStrength: clamp01(params.halationStrength * 1.05),
+      softness: params.softness,
+      chromaticAberration: params.chromaticAberration,
+      milkyHighlights: params.milkyHighlights,
+      contrast: (params.contrast + 0.05).clamp(-0.3, 0.3).toDouble(),
+      blueCrush: params.blueCrush,
+      halationWarmth: params.halationWarmth,
+      grainSize: params.grainSize,
+      distortion: params.distortion,
+      shadowDesat: params.shadowDesat,
+      colorSplit: params.colorSplit,
+      crossover: params.crossover,
+      bloomStrength: clamp01(params.bloomStrength * 1.08),
     );
   }
 
